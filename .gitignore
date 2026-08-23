@@ -1,0 +1,28 @@
+# Build output
+/out/
+/token-service
+/dist/
+
+# Test binaries (go test -c) and coverage
+*.test
+coverage.out
+*.prof
+
+# Local signing keys — NEVER commit a real RSA key
+*.key
+*.pem
+signing.key
+
+# Delve debugger output
+__debug_bin*
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+
+# Environment variables
+.env*
+!.env*.example

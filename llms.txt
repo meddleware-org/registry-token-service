@@ -1,0 +1,63 @@
+# registry-token-service
+
+> A stateless Go service implementing the CNCF Distribution registry token
+> authentication spec. It authenticates Docker push/pull clients via Ory Hydra
+> (client_credentials) and authorizes per-repository actions via Ory Keto, then
+> issues short-lived RS256 JWTs the registry validates directly. Runs on `scratch`
+> as non-root UID 65534.
+
+## Purpose
+
+- Front-ends a CNCF Distribution (`registry:3`) instance for token auth.
+- Delegates authentication to Hydra and authorization to Keto — never validates
+  credentials or invents permissions locally.
+- Issues RS256 JWTs whose `access` list is the intersection of requested scope and
+  Keto-granted actions.
+
+## Endpoints
+
+- `GET /token` — HTTP Basic auth (`client_id:client_secret`), query params
+  `service` (must equal `TOKEN_SERVICE`) and `scope`
+  (`repository:<name>:<actions>`). Returns `{ "token", "expires_in", "issued_at" }`.
+- `GET /healthz` — returns `200 {"status":"ok"}`.
+- CLI: `-healthcheck` dials `/healthz` and exits 0/1 (container HEALTHCHECK).
+
+## Configuration (environment variables)
+
+- `PORT` (default 8080)
+- `TOKEN_ISSUER` (required) — JWT `iss`
+- `TOKEN_SERVICE` (required) — JWT `aud` / registry service name
+- `TOKEN_TTL` (default 300 seconds)
+- `RSA_PRIVATE_KEY_PATH` (default /etc/token-service/signing.key) — PEM RSA key, ≥ 4096-bit or the service refuses to start
+- `HYDRA_TOKEN_URL` (required) — Hydra POST /oauth2/token
+- `KETO_READ_URL` (required) — Keto read API base URL
+- `LOG_LEVEL` (default info)
+
+## Authorization model
+
+- Keto namespace `Registry`; relations `pullers` (pull), `pushers` (push), `admins`
+  (delete). pushers/pullers checked independently. Subjects = Hydra client_id.
+- Two-tier object check for repository scopes: the specific `org/repo` object is checked
+  first, then the `org` object (segment before the first `/`) as a fallback. An org-level
+  grant covers all current/future repos in the org; per-repo grants take precedence.
+- Catalog listing uses the `listers` relation on the fixed `catalog` object.
+- Requesting more than granted yields a token scoped to the granted subset — never an error.
+
+## Security invariants
+
+- Keto is the source of truth for permissions; unreachable Keto → 503 (fail closed).
+- Hydra validates credentials; unreachable Hydra → 503 (fail closed).
+- RS256 only; signing key ≥ 4096-bit enforced at startup.
+- Stateless: no token cache, no refresh; TOKEN_TTL honored.
+
+## Supply chain
+
+- Multi-arch images (amd64/arm64) on quay.io + Docker Hub.
+- SBOM (SPDX) + SLSA provenance attached; keyless cosign signatures over the digest.
+- Base image pinned by digest; reproducible build.
+
+## Links
+
+- Source: https://github.com/meddleware-org/registry-token-service
+- Spec: https://distribution.github.io/distribution/spec/auth/token/
+- Security policy: SECURITY.md

@@ -1,0 +1,8 @@
+Dockerfile
+.dockerignore
+*.md
+.gitignore
+.env*
+.github/
+LICENSE
+llms.txt

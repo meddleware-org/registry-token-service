@@ -1,0 +1,171 @@
+name: Publish
+
+# Release pipeline for registry-token-service. Fires on version tags (v*).
+#
+# Supply-chain controls (verifiable by any anonymous operator):
+#   - Multi-arch build (linux/amd64, linux/arm64) via Buildx/QEMU
+#   - SBOM (SPDX) + SLSA provenance attached to the image by BuildKit
+#   - Keyless cosign signatures (Sigstore Fulcio/Rekor) over the image digest
+#   - GitHub-native build-provenance attestation
+#   - `latest` is published ONLY for stable (non-pre-release) semver tags
+#
+# Public registries (quay.io, Docker Hub) get the full treatment. The self-hosted
+# registry push is best-effort (continue-on-error) since it may not exist yet.
+#
+# Required repository configuration:
+#   Secrets: QUAY_USERNAME/QUAY_TOKEN, DOCKERHUB_USERNAME/DOCKERHUB_TOKEN,
+#            PRIVATE_REGISTRY_USERNAME/PRIVATE_REGISTRY_TOKEN
+#   Vars (optional overrides): QUAY_NAMESPACE, DOCKERHUB_NAMESPACE,
+#            PRIVATE_REGISTRY, PRIVATE_NAMESPACE, VENDOR, DESCRIPTION,
+#            SOURCE_URL, DOCUMENTATION_URL, IMAGE_URL
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  IMAGE: registry-token-service
+
+jobs:
+  publish-public:
+    name: Publish (quay.io + Docker Hub)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: Log in to quay.io
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute tags and labels
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: |
+            quay.io/${{ vars.QUAY_NAMESPACE || 'meddleware-org' }}/${{ env.IMAGE }}
+            docker.io/${{ vars.DOCKERHUB_NAMESPACE || 'meddleware' }}/${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          flavor: |
+            latest=auto
+
+      - name: Build and push (multi-arch, SBOM + provenance)
+        id: build
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            VENDOR=${{ vars.VENDOR || 'Meddleware' }}
+            DESCRIPTION=${{ vars.DESCRIPTION || 'Distribution registry JWT token service backed by Ory Hydra + Keto.' }}
+            SOURCE_URL=${{ vars.SOURCE_URL || 'https://github.com/meddleware-org/registry-token-service' }}
+            DOCUMENTATION_URL=${{ vars.DOCUMENTATION_URL || 'https://github.com/meddleware-org/registry-token-service#readme' }}
+            IMAGE_URL=${{ vars.IMAGE_URL || 'https://quay.io/meddleware-org/registry-token-service' }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign images (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          QUAY_NS: ${{ vars.QUAY_NAMESPACE || 'meddleware-org' }}
+          DOCKERHUB_NS: ${{ vars.DOCKERHUB_NAMESPACE || 'meddleware' }}
+        run: |
+          cosign sign --yes "quay.io/${QUAY_NS}/${IMAGE}@${DIGEST}"
+          cosign sign --yes "docker.io/${DOCKERHUB_NS}/${IMAGE}@${DIGEST}"
+
+      - name: Attest build provenance (quay.io)
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-name: quay.io/${{ vars.QUAY_NAMESPACE || 'meddleware-org' }}/${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest build provenance (Docker Hub)
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-name: docker.io/${{ vars.DOCKERHUB_NAMESPACE || 'meddleware' }}/${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        run: |
+          echo "Published & signed @ digest: ${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-private:
+    name: Publish (self-hosted registry)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4.2.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.3.0
+      - name: Log in to self-hosted registry
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ vars.PRIVATE_REGISTRY || 'registry.meddleware.co.uk' }}
+          username: ${{ secrets.PRIVATE_REGISTRY_USERNAME }}
+          password: ${{ secrets.PRIVATE_REGISTRY_TOKEN }}
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ vars.PRIVATE_REGISTRY || 'registry.meddleware.co.uk' }}/${{ vars.PRIVATE_NAMESPACE || 'meddleware-org' }}/${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          flavor: |
+            latest=auto
+      - name: Build and push
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            VENDOR=${{ vars.VENDOR || 'Meddleware' }}
+            DESCRIPTION=${{ vars.DESCRIPTION || 'Distribution registry JWT token service backed by Ory Hydra + Keto.' }}
+            SOURCE_URL=${{ vars.SOURCE_URL || 'https://github.com/meddleware-org/registry-token-service' }}
+            DOCUMENTATION_URL=${{ vars.DOCUMENTATION_URL || 'https://github.com/meddleware-org/registry-token-service#readme' }}
+            IMAGE_URL=${{ vars.IMAGE_URL || 'https://quay.io/meddleware-org/registry-token-service' }}
+      - name: Summary
+        if: always()
+        run: |
+          echo "Pushed to private registry @ ${{ vars.PRIVATE_REGISTRY || 'registry.meddleware.co.uk' }}" >> "$GITHUB_STEP_SUMMARY"
