@@ -71,7 +71,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth)
-	mux.Handle("GET /token", handleToken(hydraClient, ketoClient, issuer))
+	mux.Handle("GET /token", handleToken(hydraClient, ketoClient, issuer, cfg.TokenService))
 
 	srv := &http.Server{
 		Addr:         net.JoinHostPort("", cfg.Port),
@@ -145,12 +145,22 @@ func handleToken(
 	hydraClient *hydra.Client,
 	ketoClient *keto.Client,
 	issuer *token.Issuer,
+	service string,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientID, clientSecret, ok := r.BasicAuth()
 		if !ok || clientID == "" {
 			w.Header().Set("WWW-Authenticate", `Basic realm="registry token service"`)
 			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+
+		// The `service` param must name this token service (it becomes the JWT `aud`); a mismatch
+		// means the token would be minted for a different audience than the registry validating it,
+		// so reject it rather than issue a token the registry will reject anyway.
+		if svc := r.URL.Query().Get("service"); svc != service {
+			slog.Warn("service mismatch", "client_id", clientID, "requested_service", svc, "expected", service)
+			writeError(w, http.StatusBadRequest, "unexpected service")
 			return
 		}
 

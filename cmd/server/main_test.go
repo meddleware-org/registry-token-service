@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/meddleware-org/registry-token-service/internal/hydra"
 	"github.com/meddleware-org/registry-token-service/internal/keto"
 )
 
@@ -110,6 +111,68 @@ func TestCheckRepoOrOrgPermission(t *testing.T) {
 			t.Errorf("keto calls = %d, want 1 (no org fallback for a repo without a slash)", calls)
 		}
 	})
+}
+
+// fakeHydra returns a hydra.Client pointed at a test server. `status` is what the fake token
+// endpoint returns: 200 grants (valid creds), 401 rejects (invalid creds), 500 simulates an
+// outage (→ transport-level error → 503 from the handler).
+func fakeHydra(t *testing.T, status int) *hydra.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if status == http.StatusOK {
+			_, _ = w.Write([]byte(`{"access_token":"t","token_type":"bearer"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+	}))
+	t.Cleanup(srv.Close)
+	return hydra.NewClient(srv.URL)
+}
+
+// fakeKetoError returns a Keto client whose server always 500s, so a permission check returns an
+// error (the handler must then fail closed with 503, never fail open).
+func fakeKetoError(t *testing.T) *keto.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	return keto.NewClient(srv.URL)
+}
+
+func tokenRequest(service, scope string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/token?service="+url.QueryEscape(service)+"&scope="+url.QueryEscape(scope), nil)
+	req.SetBasicAuth("registry-ci", "secret")
+	return req
+}
+
+func TestHandleToken_ServiceMismatch(t *testing.T) {
+	h := handleToken(fakeHydra(t, http.StatusOK), fakeKeto(t, nil, nil), nil, "registry.meddleware.co.uk")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, tokenRequest("evil.example.com", "repository:a/b:pull"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a service mismatch", rec.Code)
+	}
+}
+
+func TestHandleToken_HydraUnavailableReturns503(t *testing.T) {
+	h := handleToken(fakeHydra(t, http.StatusInternalServerError), fakeKeto(t, nil, nil), nil, "reg")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, tokenRequest("reg", "repository:a/b:pull"))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 when Hydra is unavailable (must fail closed)", rec.Code)
+	}
+}
+
+func TestHandleToken_KetoUnavailableReturns503(t *testing.T) {
+	h := handleToken(fakeHydra(t, http.StatusOK), fakeKetoError(t), nil, "reg")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, tokenRequest("reg", "repository:meddleware-org/foo:pull"))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 when Keto is unavailable (must fail closed)", rec.Code)
+	}
 }
 
 // Guard against accidental breakage of the query the client sends to Keto.

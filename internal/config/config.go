@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -77,6 +78,17 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("required environment variables not set: %s", strings.Join(missing, ", "))
 	}
 
+	// Fail fast on a malformed Hydra/Keto URL rather than surfacing an opaque request error at the
+	// first token request. Both are in-cluster ClusterIP services over http, so `http` is allowed;
+	// only unparseable, host-less, or non-http(s) values are rejected. (Transport encryption for
+	// these hops is provided at the platform layer — see the registry-token-service audit F4.)
+	if err := validateHTTPURL("HYDRA_TOKEN_URL", hydraTokenURL); err != nil {
+		return nil, err
+	}
+	if err := validateHTTPURL("KETO_READ_URL", ketoReadURL); err != nil {
+		return nil, err
+	}
+
 	keyPath := envOr("RSA_PRIVATE_KEY_PATH", "/etc/token-service/signing.key")
 	key, err := loadPrivateKey(keyPath)
 	if err != nil {
@@ -106,6 +118,22 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// validateHTTPURL rejects a value that is not a well-formed http(s) URL with a host. It does not
+// require https: Hydra and Keto are reached over in-cluster http (encryption is a platform concern).
+func validateHTTPURL(name, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", name, raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%s must be an http(s) URL, got scheme %q in %q", name, u.Scheme, raw)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%s must include a host: %q", name, raw)
+	}
+	return nil
 }
 
 func loadPrivateKey(path string) (*rsa.PrivateKey, error) {

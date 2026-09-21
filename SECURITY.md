@@ -33,6 +33,52 @@ in scope and treated as high severity:
    intersected with Keto-granted actions; a client never receives more than it is
    granted.
 5. **Stateless, TTL-bound tokens.** No token caching or refresh; `TOKEN_TTL` is honored.
+6. **`service` is validated.** The request's `service` parameter must equal `TOKEN_SERVICE`
+   (the JWT `aud`); a mismatch is rejected with `400` rather than minting a token for the
+   wrong audience.
+
+## Transport to Hydra and Keto
+
+The service calls Hydra (`HYDRA_TOKEN_URL`) and Keto (`KETO_READ_URL`) over **in-cluster HTTP**
+(ClusterIP services in the `auth` namespace, e.g. `http://hydra.auth.svc.cluster.local:4444`).
+`config.Load` validates both are well-formed `http(s)` URLs with a host and fails fast otherwise.
+Two controls bound this plaintext hop:
+
+- **NetworkPolicy.** The `auth` namespace runs default-deny ingress; only the `token-service` pod
+  (in the `registry` namespace) may reach Hydra `:4444` and Keto `:4466`
+  (`k8s/base/auth/networkpolicy.yaml`). No other pod can reach the auth services on those ports.
+- **Transport encryption is a platform concern.** In-cluster pod-to-pod traffic is encrypted at the
+  CNI layer (Cilium WireGuard transparent encryption), with SPIFFE-based mutual authentication on the
+  token-service → Hydra/Keto path. Application-level mTLS is intentionally **not** implemented here;
+  the client-credentials (Basic auth to Hydra) and Keto queries rely on the platform mesh for
+  confidentiality and peer authentication.
+
+## Signing-key custody
+
+The RS256 JWT signing key is the single highest-value secret this service holds: whoever holds the
+private key can mint tokens the registry will trust. Custody controls (the "proof" record for an
+audit):
+
+- **Never in the image or env.** The key is read from a file at `RSA_PRIVATE_KEY_PATH`
+  (default `/etc/token-service/signing.key`); it is never baked into the image, passed as an env
+  var, or logged.
+- **Kubernetes Secret, tight mount.** The file is projected from a Kubernetes `Secret`
+  (`token-service-keys`, key `signing.key`) mounted **read-only at mode `0440`**. The pod runs as
+  `runAsUser: 65534` with `fsGroup: 65534`, so only the non-root service account can read it; the
+  image itself sets `USER 65534:65534`.
+- **Strength enforced at startup.** `config.Load` rejects any key `< 4096-bit` (`minRSABits`),
+  failing closed rather than signing with a weak key.
+- **Rotation.** Replace the `Secret` and restart the Deployment; the registry's `rootcertbundle`
+  public key must be updated in lock-step (both trust the same key pair). Because tokens are
+  short-lived (`TOKEN_TTL`), a rotation drains within one TTL window.
+- **Optional hardening (infra-dependent, not in this repo):** encrypt the Secret at rest with SOPS
+  or a KMS-backed sealed-secret. The mount/permission model above is unchanged either way.
+
+## Runbooks
+
+- [Keto outage](docs/runbooks/keto-outage.md) — what happens when the Keto authorization service is
+  unreachable (registry-wide push/pull halt, fail-closed by design) and how to detect, mitigate, and
+  recover.
 
 ## Supported versions
 
