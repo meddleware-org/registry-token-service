@@ -1,5 +1,4 @@
-name: Publish
-
+name: Publish (Docker)
 # Release pipeline for registry-token-service. Fires on version tags (v*).
 #
 # Supply-chain controls (verifiable by any anonymous operator):
@@ -28,9 +27,24 @@ env:
   IMAGE: registry-token-service
 
 jobs:
+  verify:
+    name: Verify (vet + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: go test (race)
+        run: go test -race ./...
+
   publish-public:
     name: Publish (quay.io + Docker Hub)
     runs-on: ubuntu-latest
+    needs: verify
     permissions:
       contents: read
       id-token: write
@@ -123,6 +137,7 @@ jobs:
   publish-private:
     name: Publish (self-hosted registry)
     runs-on: ubuntu-latest
+    needs: verify
     continue-on-error: true
     permissions:
       contents: read
