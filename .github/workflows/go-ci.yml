@@ -1,4 +1,4 @@
-name: CI
+name: Go CI
 
 # Continuous integration gate for registry-token-service (a security-critical
 # service — it authorizes every container push/pull). Runs on every push and PR.
@@ -75,3 +75,4 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
+          version: v0.74.0
