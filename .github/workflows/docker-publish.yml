@@ -94,7 +94,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          sbom: true
+          # BuildKit SBOM pulls docker/buildkit-syft-scanner from Docker Hub, whose
+          # anonymous OAuth endpoint is unreliable (connection resets). Provenance
+          # + cosign signatures + actions/attest-build-provenance already cover
+          # supply-chain attestation, matching the split-arch image repos.
+          sbom: false
           provenance: mode=max
           build-args: |
             VERSION=${{ github.ref_name }}
@@ -171,7 +175,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          sbom: true
+          # BuildKit SBOM pulls docker/buildkit-syft-scanner from Docker Hub, whose
+          # anonymous OAuth endpoint is unreliable (connection resets). Provenance
+          # + cosign signatures + actions/attest-build-provenance already cover
+          # supply-chain attestation, matching the split-arch image repos.
+          sbom: false
           provenance: mode=max
           build-args: |
             VERSION=${{ github.ref_name }}
