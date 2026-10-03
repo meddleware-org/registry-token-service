@@ -18,6 +18,12 @@ import (
 // every issued token, so the service refuses to start with a smaller key.
 const minRSABits = 4096
 
+// Bounds on TOKEN_TTL, in seconds.
+const (
+	minTTLSeconds = 60
+	maxTTLSeconds = 3600
+)
+
 // Config holds all runtime configuration for the token service.
 type Config struct {
 	// Port is the HTTP listen port.
@@ -72,6 +78,11 @@ func Load() (*Config, error) {
 	ttlSec, err := strconv.Atoi(envOr("TOKEN_TTL", "300"))
 	if err != nil {
 		return nil, fmt.Errorf("TOKEN_TTL must be an integer: %w", err)
+	}
+	// Registry tokens are bearer credentials for push and pull: keep them short-lived. A zero or
+	// negative TTL would mint already-expired tokens; a long one would outlive a revoked grant.
+	if ttlSec < minTTLSeconds || ttlSec > maxTTLSeconds {
+		return nil, fmt.Errorf("TOKEN_TTL must be between %d and %d seconds, got %d", minTTLSeconds, maxTTLSeconds, ttlSec)
 	}
 
 	if len(missing) > 0 {

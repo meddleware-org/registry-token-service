@@ -5,6 +5,21 @@ All notable changes to registry-token-service are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-10-03
+
+### Changed
+
+- `TOKEN_TTL` must be between 60 and 3600 seconds; the service refuses to start otherwise (a zero
+  or negative value minted already-expired tokens; a long one outlived revoked grants).
+
+### Added
+
+- Unit tests for the trust boundaries: Hydra and Keto status mapping (fail closed on anything but an
+  explicit answer, query values passed intact), issuer claims (RS256, RFC 7638 `kid` checked against
+  the RFC's example, string `aud`, TTL span, access list), and configuration (key size floor, PKCS1
+  and PKCS8, URL and TTL validation).
+- CI pins `govulncheck` (v1.8.0).
+
 ## [Unreleased]
 
 ### Added
