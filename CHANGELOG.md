@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and PKCS8, URL and TTL validation).
 - CI pins `govulncheck` (v1.8.0).
 
-## [Unreleased]
+## [0.1.0] - 2026-08-23
 
 ### Added
 - Two-tier repository authorization (`checkRepoOrOrgPermission`): a
