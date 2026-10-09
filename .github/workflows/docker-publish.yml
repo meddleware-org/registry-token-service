@@ -30,19 +30,11 @@ permissions:
   contents: read
 
 jobs:
+  # The release runs exactly what CI runs (lint, vet, race tests, govulncheck, filesystem scan) on the tagged
+  # commit, so no check can be skipped by tagging.
   verify:
-    name: Verify (vet + test)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: go vet
-        run: go vet ./...
-      - name: go test (race)
-        run: go test -race ./...
+    name: Verify (CI checks)
+    uses: ./.github/workflows/go-ci.yml
 
   publish-public:
     name: Publish (quay.io + Docker Hub)
@@ -110,6 +102,15 @@ jobs:
             SOURCE_URL=${{ vars.SOURCE_URL || 'https://github.com/meddleware-org/registry-token-service' }}
             DOCUMENTATION_URL=${{ vars.DOCUMENTATION_URL || 'https://github.com/meddleware-org/registry-token-service#readme' }}
             IMAGE_URL=${{ vars.IMAGE_URL || 'https://quay.io/meddleware-org/registry-token-service' }}
+
+      - name: Scan the published image (fail on fixable CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: quay.io/${{ vars.QUAY_NAMESPACE || 'meddleware-org' }}/${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+          version: v0.74.0
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

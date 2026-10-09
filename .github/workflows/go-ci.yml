@@ -13,6 +13,8 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
+  # The release workflow runs the same checks on the tagged commit.
+  workflow_call:
 
 permissions:
   contents: read
