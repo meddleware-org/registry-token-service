@@ -68,14 +68,16 @@ audit):
   image itself sets `USER 65534:65534`.
 - **Strength enforced at startup.** `config.Load` rejects any key `< 4096-bit` (`minRSABits`),
   failing closed rather than signing with a weak key.
-- **Rotation.** Replace the `Secret` and restart the Deployment; the registry's `rootcertbundle`
-  public key must be updated in lock-step (both trust the same key pair). Because tokens are
-  short-lived (`TOKEN_TTL`), a rotation drains within one TTL window.
+- **Rotation with overlap.** Add the new public key to the registry's `rootcertbundle` first, then
+  replace the `Secret` and restart the Deployment, then drop the old public key once one `TOKEN_TTL`
+  (at most 3600 s) has passed. A suspected compromise skips the overlap: trust only the new key at
+  once. Steps in [docs/runbooks/key-rotation.md](docs/runbooks/key-rotation.md).
 - **Optional hardening (infra-dependent, not in this repo):** encrypt the Secret at rest with SOPS
   or a KMS-backed sealed-secret. The mount/permission model above is unchanged either way.
 
 ## Runbooks
 
+- [Key rotation](docs/runbooks/key-rotation.md) — planned rotation with overlap, and the compromise procedure.
 - [Keto outage](docs/runbooks/keto-outage.md) — what happens when the Keto authorization service is
   unreachable (registry-wide push/pull halt, fail-closed by design) and how to detect, mitigate, and
   recover.

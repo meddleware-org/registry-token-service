@@ -5,6 +5,12 @@ All notable changes to registry-token-service are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-09
+
+### Security
+
+- Token requests are bounded and validated: at most 16 scope entries and 4096 scope bytes (400 otherwise), and a repository name must match the Distribution grammar before it becomes a Keto object. Token responses carry `Cache-Control: no-store` and `Pragma: no-cache` (RFC 6749 §5.1). The `token issued` audit line now names the requested and the granted scopes, never a credential. The whole flow is tested against fake Hydra and Keto (intersection, org fallback, deny by default, every anchor failure is 503, no secret in the log). New key-rotation runbook (overlap, and the compromise procedure)
+
 ## [0.1.4] - 2026-10-09
 
 ### Security

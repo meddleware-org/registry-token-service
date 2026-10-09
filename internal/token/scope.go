@@ -3,8 +3,31 @@
 package token
 
 import (
+	"regexp"
 	"strings"
 )
+
+// Limits on a token request. A Docker client asks for a handful of scopes; each requested action costs up
+// to two sequential Keto checks, so an unbounded request would let any credential holder multiply its work
+// at the authorization service.
+const (
+	// MaxScopeBytes bounds the raw `scope` query value.
+	MaxScopeBytes = 4096
+	// MaxScopeItems bounds the number of scope entries in one request.
+	MaxScopeItems = 16
+	// MaxNameLength is the Distribution limit on a repository name.
+	MaxNameLength = 255
+)
+
+// repositoryName is the Distribution repository-name grammar: lower-case path components of
+// alphanumerics joined by `.`, `_`, `__` or runs of `-`, separated by `/`.
+var repositoryName = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*$`)
+
+// ValidRepositoryName reports whether name is a well-formed Distribution repository name. A name that is
+// not one never reaches the authorization service as a Keto object.
+func ValidRepositoryName(name string) bool {
+	return len(name) <= MaxNameLength && repositoryName.MatchString(name)
+}
 
 // ScopeItem represents a single parsed scope from the Docker token request
 // (e.g. "repository:myorg/myimage:push,pull").

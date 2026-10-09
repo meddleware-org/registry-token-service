@@ -148,6 +148,10 @@ func handleToken(
 	service string,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// RFC 6749 §5.1: a token response (and every answer to a token request) must not be cached.
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
+
 		clientID, clientSecret, ok := r.BasicAuth()
 		if !ok || clientID == "" {
 			w.Header().Set("WWW-Authenticate", `Basic realm="registry token service"`)
@@ -182,11 +186,21 @@ func handleToken(
 
 		// Step 2: evaluate requested scope against Keto.
 		rawScope := r.URL.Query().Get("scope")
+		if len(rawScope) > token.MaxScopeBytes {
+			writeError(w, http.StatusBadRequest, "scope too long")
+			return
+		}
 		scopeItems := token.ParseScope(rawScope)
+		if len(scopeItems) > token.MaxScopeItems {
+			writeError(w, http.StatusBadRequest, "too many scopes")
+			return
+		}
 
 		var access []token.AccessClaim
 		for _, item := range scopeItems {
 			switch {
+			case item.Type == "repository" && !token.ValidRepositoryName(item.Name):
+				// Not a repository name: it is never offered to Keto as an object, and grants nothing.
 			case item.Type == "repository":
 				// Per-action push/pull/delete: check each against Keto, first on
 				// the specific repository object and then, as a fallback, on the
@@ -251,11 +265,32 @@ func handleToken(
 			IssuedAt:  now.Format(time.RFC3339),
 		})
 
+		// Audit trail: who asked for what, and what they were given. Names and actions only, never a
+		// credential; the requested list is bounded by the scope limits above.
 		slog.Info("token issued",
 			"client_id", clientID,
-			"scope_items", len(access),
+			"requested", describeScopes(scopeItems),
+			"granted", describeAccess(access),
 		)
 	})
+}
+
+// describeScopes renders requested scope items as `type:name:action,action` strings for the audit log.
+func describeScopes(items []token.ScopeItem) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Type+":"+it.Name+":"+strings.Join(it.Actions, ","))
+	}
+	return out
+}
+
+// describeAccess renders granted access claims the same way.
+func describeAccess(access []token.AccessClaim) []string {
+	out := make([]string, 0, len(access))
+	for _, a := range access {
+		out = append(out, a.Type+":"+a.Name+":"+strings.Join(a.Actions, ","))
+	}
+	return out
 }
 
 // checkRepoOrOrgPermission grants an action if the client holds relation on the

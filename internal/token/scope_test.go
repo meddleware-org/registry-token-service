@@ -2,6 +2,7 @@ package token
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -66,4 +67,22 @@ func TestFilterActions(t *testing.T) {
 			t.Fatalf("FilterActions kept wrong type/name: %+v", got)
 		}
 	})
+}
+
+func TestValidRepositoryName(t *testing.T) {
+	valid := []string{"app", "org/app", "meddleware-org/registry-auth-proxy", "a.b/c_d/e__f/g--h", "org/a1", strings.Repeat("a", MaxNameLength)}
+	for _, n := range valid {
+		if !ValidRepositoryName(n) {
+			t.Errorf("%q should be a valid repository name", n)
+		}
+	}
+	invalid := []string{
+		"", "Org/App", "org//app", "/org", "org/", "org/app/", "-org/app", "org/app-", "org/.app", "org/app.", "a/../b",
+		"org/app#pushers", "org/app:tag", "org app", "org/ap\np", "org/app\x00", "org/ä", "org/a___b", strings.Repeat("a", MaxNameLength+1),
+	}
+	for _, n := range invalid {
+		if ValidRepositoryName(n) {
+			t.Errorf("%q must not be a valid repository name (it would become a Keto object)", n)
+		}
+	}
 }
