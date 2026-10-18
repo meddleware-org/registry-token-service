@@ -570,8 +570,8 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 - [x] B.AUTH-1 key and credential inventory and B.AUTH-2 client and relation inventory complete (above)
 - [x] OAuth clients registered with minimal grants (client-credentials only, no redirect URIs); the browser client has no `pushers` tuple
 - [x] non-root runtime; pod security context complete; probes and limits set; deployment by digest from `config/images.yaml`
-- [x] documentation matches the platform — F17 (`SECURITY.md` and the Keto runbook state D18), F22 (README `cosign verify` pinned to `docker-publish.yml@refs/tags/v*`), F18 (notices in the image, `scripts/check-image-notices.sh` in CI): 0.1.7, commit pending
-- [x] repeated `scope` parameters evaluated — F16: `token.ParseScopeParams`, bounds across all parameters, four tests (0.1.7, commit pending)
+- [x] documentation matches the platform — F17 (`SECURITY.md` and the Keto runbook state D18), F22 (README `cosign verify` pinned to `docker-publish.yml@refs/tags/v*`), F18 (notices in the image, `scripts/check-image-notices.sh` in CI): 0.1.7, commit `54b7953`
+- [x] repeated `scope` parameters evaluated — F16: `token.ParseScopeParams`, bounds across all parameters, four tests (0.1.7, commit `54b7953`)
 
 ### pre-mainnet
 
