@@ -8,7 +8,7 @@
 **Modules:** `golang-jwt/jwt/v5` v5.3.1 (RS256 signing), `google/uuid` v1.6.0 (`jti`); everything else is stdlib
 **Entry points:** `cmd/server` (listens on `:8080`: `GET /token`, `GET /healthz`; `-healthcheck` flag for the container `HEALTHCHECK`)
 **Upstreams:** Hydra public token endpoint `http://hydra.auth.svc.cluster.local:4444/oauth2/token` (the client's own Basic credentials, 10 s); Keto read API `http://keto.auth.svc.cluster.local:4466` (no credential, 5 s). Both in-cluster.
-**Images:** `quay.io/meddleware-org/registry-token-service:0.1.6@sha256:1f3d27f402867275b427119ceffbd595eba98df6dee5ccf24847a717e321f033` (also `docker.io/meddleware/registry-token-service`; best-effort mirror on the self-hosted registry)
+**Images:** `quay.io/meddleware-org/registry-token-service:0.1.7@sha256:28e733830019a40606ca2e9248deb8d4f967ed9015e6bcf08d9236097e668124` (cosign keyless signature verified 2026-10-18 against the workflow-anchored identity, `verify-digests.sh` 16/16; superseded 0.1.6 was `sha256:1f3d27f4…f033`; also `docker.io/meddleware/registry-token-service`, same digest; best-effort mirror on the self-hosted registry)
 **Base images:** build `golang:1.26.9-bookworm@sha256:d9c68c2c…641453c`; runtime `scratch` (binary + CA bundle)
 **Runtime user:** `65534:65534`   **Runtime FS:** read-only root; the only mount is the signing-key Secret (read-only, mode 0440)
 **Deployed by:** `k8s/base/registry/token-service` through `k8s/clusters/meddleware-org/registry` (digest stamped from `config/images.yaml`)
@@ -18,11 +18,11 @@
 **Token formats:** JWT, RS256, `typ` JWT, `kid` = RFC 7638 thumbprint of the signing key, `aud` a plain JSON string
 **Signing / client credentials:** `signing.key` (RSA ≥ 4096-bit, Secret `token-service-keys`, mounted file, no rotation cadence fixed — F14); the service holds no client secret of its own, it forwards the caller's Basic credentials to Hydra
 **Authorization model:** Keto namespace `Registry`; relations `pullers`, `pushers`, `admins` (repository, then organisation fallback) and `listers` (object `catalog`)
-**Deployment status:** image `quay.io/meddleware-org/registry-token-service` 0.1.6 (cosign-verified 2026-10-09, `bootstrap/images/verify-digests.sh` 16/16) running in namespace `registry` (`k8s/base/registry/token-service`); public through `token.meddleware.co.uk` (Cloudflare rate-limit rule plus nginx 2 r/s per IP)
+**Deployment status:** image `quay.io/meddleware-org/registry-token-service` 0.1.7 (`sha256:28e73383…8124`; release tag `v0.1.7` = `d54598d`; released and deployed 2026-10-18, cosign signature verified against the workflow-anchored identity, `bootstrap/images/verify-digests.sh` 16/16; the rollout succeeded; 0.1.6 was cosign-verified and deployed 2026-10-09) running in namespace `registry` (`k8s/base/registry/token-service`); public through `token.meddleware.co.uk` (Cloudflare rate-limit rule plus nginx 2 r/s per IP)
 **Review date:** 2026-09-18 (first pass) · re-verified 2026-10-03 · re-verified 2026-10-09 · fix wave 2026-10-18
 **Reviewer:** Internal review
 **Severity ceiling:** High — it gates registry push and pull, so a scope escalation or fail-open defect would allow unauthorised image pushes. No Critical or High defect found; realised ceiling Medium (F1, resolved).
-**Status:** re-verified 2026-10-18 (fixes in 0.1.7, release pending)
+**Status:** re-verified 2026-10-18 (fixes in 0.1.7, released and deployed 2026-10-18; signature verified, rollout succeeded)
 
 ---
 
@@ -64,7 +64,7 @@ the key-rotation runbook (F14) and a release that runs full CI and scans the ima
   validation mints and discards a Hydra token. **F21 (Info)** — `.git` was not in `.dockerignore`;
   RESOLVED in 0.1.7.
 
-The 2026-10-18 fix wave (0.1.7, release pending) closed F16, F17, F18, F21 and F22.
+The 2026-10-18 fix wave (0.1.7, released and deployed 2026-10-18) closed F16, F17, F18, F21 and F22.
 
 The signing-key rotation has a written procedure but has not been rehearsed; that stays a
 pre-mainnet maintainer item (Section D).
@@ -111,8 +111,8 @@ Critical / High / Medium / Low / Info / Positive.
   covered; `main`, `healthCheck` and `logRequest` are not). golangci-lint v2.13.0 reports 0 issues and
   govulncheck v1.8.0 reports no vulnerabilities (both run under Go 1.26.9). A rootless podman build of
   the Dockerfile succeeded and `CONTAINER_CLI=podman scripts/check-image-notices.sh` passed. Go CI and
-  Publish (Docker) for `v0.1.6` both succeeded 2026-10-09. Live check (2026-10-09): `GET
-  https://token.meddleware.co.uk/token` without credentials answers 401 with `Cache-Control: no-store`.
+  Publish (Docker) for `v0.1.6` both succeeded 2026-10-09. Live check (2026-10-09, repeated on 0.1.7 on 2026-10-18): `GET
+  https://token.meddleware.co.uk/token` without credentials answers 401 with `Cache-Control: no-store` and `WWW-Authenticate: Basic realm="registry token service"`.
 
 ## Findings
 
@@ -303,7 +303,7 @@ malformed values, both bounds spanning parameters, 4097 one-byte parameters),
 `TestToken_RepeatedScopeParametersStayAFilterNeverAPassthrough` (push, delete and ungranted repositories
 dropped across parameters), `TestToken_ScopeBoundsApplyAcrossRepeatedParameters` (17 parameters, 17
 entries over three parameters, 3 x 2064 bytes, Keto never asked; exactly 16 parameters passes).
-Commit pending.
+Released in `v0.1.7` (`d54598d`, 2026-10-18).
 
 ### F17 — `SECURITY.md` and a runbook still claim mutual authentication to Hydra and Keto
 
@@ -322,7 +322,7 @@ nodes, WireGuard.
 Hydra client-secret authentication (Keto's read API takes no credential, so there the NetworkPolicy is
 the whole control), and single-node traffic with WireGuard between nodes. The Keto outage runbook no
 longer names a mutual-auth policy. No other file in the repository mentions SPIFFE, mutual
-authentication or a mesh (grep). Commit pending.
+authentication or a mesh (grep). Released in `v0.1.7` (`d54598d`, 2026-10-18).
 
 ### F18 — Licence notices of bundled modules not shipped
 
@@ -343,8 +343,8 @@ runtime stage copies the result and the project's own `LICENSE` to
 container and asserts both files are non-empty, every module in `go list -m all` and the standard
 library are named, the MIT and BSD texts are present and `LICENSE` matches the repository's; it is the
 `image` job of `go-ci.yml`, which the release workflow calls (`verify`), so a tag cannot ship without
-it. Run locally with rootless podman (`CONTAINER_CLI=podman`) on the 0.1.7 tree: passed. Commit
-pending.
+it. Run locally with rootless podman (`CONTAINER_CLI=podman`) on the 0.1.7 tree: passed. Released in `v0.1.7`
+(`d54598d`, 2026-10-18).
 
 ### F19 — Hydra and Keto error bodies reach the error log
 
@@ -381,7 +381,7 @@ only entered the discarded build stage, so no layer of the published image held 
 **Issue:** the IMG lens asks that VCS data be kept out of the build context.
 **Impact:** none on the image; a local build would send `.git` to the daemon.
 **Remediation / evidence:** `.dockerignore` now lists `.git`; the 0.1.7 podman build and notices check
-succeed with it. Commit pending.
+succeed with it. Released in `v0.1.7` (`d54598d`, 2026-10-18).
 
 ### F22 — Published `cosign verify` command is repository-wide, not workflow-pinned
 
@@ -397,8 +397,8 @@ is unanchored and accepts a signature from any workflow in the repository, on an
 **Remediation / evidence:** the README command now uses
 `--certificate-identity-regexp '^https://github\.com/meddleware-org/registry-token-service/\.github/workflows/docker-publish\.yml@refs/tags/v.*$'`,
 the shape `platform-probe`'s README uses. The signing job is `publish-public` in `docker-publish.yml`
-(the CI workflow it calls does not sign), so the identity is that workflow on a `v*` tag. Commit
-pending.
+(the CI workflow it calls does not sign), so the identity is that workflow on a `v*` tag. Released in `v0.1.7`
+(`d54598d`, 2026-10-18).
 
 ## Section A — Invariant verification matrix
 
@@ -566,7 +566,7 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 ### pre-testnet
 
 - [x] deployed with scoped NetworkPolicy; `SECURITY.md`; key custody documented
-- [x] 0.1.6 deployed (digest in `config/images.yaml`, cosign-verified 2026-10-09); the status page's registry chain check reads operational
+- [x] 0.1.7 deployed 2026-10-18 (digest `sha256:28e73383…8124` in `config/images.yaml`, cosign-verified 2026-10-18; 0.1.6 on 2026-10-09); the status page's registry chain check reads operational (re-read 2026-10-18)
 - [x] B.AUTH-1 key and credential inventory and B.AUTH-2 client and relation inventory complete (above)
 - [x] OAuth clients registered with minimal grants (client-credentials only, no redirect URIs); the browser client has no `pushers` tuple
 - [x] non-root runtime; pod security context complete; probes and limits set; deployment by digest from `config/images.yaml`
@@ -661,7 +661,7 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
   findings — 11 RESOLVED (F1, F3, F4, F7, F8, F10–F15), 2 ADJUDICATED (F2, F9), 4 ACCEPTED-RISK (F5,
   F19, F20, F21), 4 DEFERRED (F16, F17, F18, F22), 1 Positive (F6). The DEFERRED items are
   documentation or one-line code changes for the next patch release, not mainnet-blocked.
-- 2026-10-18 — fix wave, 0.1.7 (release pending): F16 RESOLVED (`token.ParseScopeParams` evaluates every
+- 2026-10-18 — fix wave, 0.1.7 (released and deployed the same day): F16 RESOLVED (`token.ParseScopeParams` evaluates every
   `scope` parameter; the 16-entry and 4096-byte bounds span all of them; four new tests), F17 RESOLVED
   (`SECURITY.md` and the Keto runbook state decision D18), F18 RESOLVED (licence notices of the Go
   modules and the standard library plus `LICENSE` in `/usr/share/doc/registry-token-service/`;
@@ -674,3 +674,4 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
   findings — 16 RESOLVED (F1, F3, F4, F7, F8, F10–F18, F21, F22), 2 ADJUDICATED (F2, F9), 3
   ACCEPTED-RISK (F5, F19, F20), 0 DEFERRED, 1 Positive (F6). golangci-lint v2.13.0, govulncheck v1.8.0,
   `go vet`, `gofmt`, `go test -race` and a rootless podman build all clean.
+- 2026-10-18 — released and deployed (`v0.1.7` = `d54598d`, `0.1.7@sha256:28e733830019a40606ca2e9248deb8d4f967ed9015e6bcf08d9236097e668124`), verified live. Cosign keyless signature verified against the workflow-anchored identity (`verify-digests.sh` 16/16); rollout (`kubectl apply -k`, registry overlay) succeeded; unauthenticated `GET /token` answers 401 `no-store` and the status page reads the registry chain operational (re-read 2026-10-18). Key-rotation rehearsal, credential inventory and external review remain maintainer items.
