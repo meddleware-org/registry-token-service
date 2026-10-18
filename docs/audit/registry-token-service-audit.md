@@ -19,10 +19,10 @@
 **Signing / client credentials:** `signing.key` (RSA ≥ 4096-bit, Secret `token-service-keys`, mounted file, no rotation cadence fixed — F14); the service holds no client secret of its own, it forwards the caller's Basic credentials to Hydra
 **Authorization model:** Keto namespace `Registry`; relations `pullers`, `pushers`, `admins` (repository, then organisation fallback) and `listers` (object `catalog`)
 **Deployment status:** image `quay.io/meddleware-org/registry-token-service` 0.1.6 (cosign-verified 2026-10-09, `bootstrap/images/verify-digests.sh` 16/16) running in namespace `registry` (`k8s/base/registry/token-service`); public through `token.meddleware.co.uk` (Cloudflare rate-limit rule plus nginx 2 r/s per IP)
-**Review date:** 2026-09-18 (first pass) · re-verified 2026-10-03 · re-verified 2026-10-09
+**Review date:** 2026-09-18 (first pass) · re-verified 2026-10-03 · re-verified 2026-10-09 · fix wave 2026-10-18
 **Reviewer:** Internal review
 **Severity ceiling:** High — it gates registry push and pull, so a scope escalation or fail-open defect would allow unauthorised image pushes. No Critical or High defect found; realised ceiling Medium (F1, resolved).
-**Status:** re-verified 2026-10-09
+**Status:** re-verified 2026-10-18 (fixes in 0.1.7, release pending)
 
 ---
 
@@ -51,16 +51,20 @@ of requested versus granted scope (F12), end-to-end handler tests against fake H
 the key-rotation runbook (F14) and a release that runs full CI and scans the image before signing
 (F15). The lens review also found items still open, none above Low and none a fail-open path:
 
-- **F16 (Low, DEFERRED)** — only the first `scope` query parameter is read, although the
-  Distribution spec lets a client repeat it; extra scopes are dropped (the service under-grants).
-- **F17 (Low, DEFERRED)** — `SECURITY.md` and a runbook still describe SPIFFE mutual authentication
-  on the Hydra/Keto hop, which the platform does not run (F4 already corrected the audit).
-- **F18 (Low, DEFERRED)** — the MIT and BSD licence notices of the two bundled modules are not shipped
-  in the image.
-- **F22 (Low, DEFERRED)** — the published `cosign verify` command accepts any workflow in the
-  repository rather than the release workflow.
-- **F19, F20, F21 (Info, ACCEPTED-RISK)** — bounded Hydra/Keto error bodies reach the error log; each
-  validation mints and discards a Hydra token; `.git` is not in `.dockerignore`.
+- **F16 (Low)** — only the first `scope` query parameter was read, although the Distribution spec lets
+  a client repeat it; extra scopes were dropped (the service under-granted). RESOLVED in 0.1.7.
+- **F17 (Low)** — `SECURITY.md` and a runbook described SPIFFE mutual authentication on the Hydra/Keto
+  hop, which the platform does not run. RESOLVED in 0.1.7 (documents corrected to decision D18).
+- **F18 (Low)** — the MIT and BSD licence notices of the two bundled modules were not shipped in the
+  image. RESOLVED in 0.1.7.
+- **F22 (Low)** — the published `cosign verify` command accepted any workflow in the repository rather
+  than the release workflow. RESOLVED in 0.1.7 (README); the workspace's `verify-digests.sh` default is
+  a platform item outside this repository.
+- **F19, F20 (Info, ACCEPTED-RISK)** — bounded Hydra/Keto error bodies reach the error log; each
+  validation mints and discards a Hydra token. **F21 (Info)** — `.git` was not in `.dockerignore`;
+  RESOLVED in 0.1.7.
+
+The 2026-10-18 fix wave (0.1.7, release pending) closed F16, F17, F18, F21 and F22.
 
 The signing-key rotation has a written procedure but has not been rehearsed; that stays a
 pre-mainnet maintainer item (Section D).
@@ -95,20 +99,20 @@ Critical / High / Medium / Low / Info / Positive.
 
 ## Scope
 
-- **In scope (0.1.6):** `cmd/server/**`, `internal/{config,hydra,keto,token}/**`, tests, `Dockerfile`,
+- **In scope (0.1.7):** `cmd/server/**`, `internal/{config,hydra,keto,token}/**`, tests, `Dockerfile`, `scripts/*`,
   workflows (`go-ci.yml`, `docker-publish.yml`, `dependabot.yml`), `SECURITY.md`, `docs/runbooks/*`,
   `k8s/base/registry/token-service/*`, `k8s/base/registry/networkpolicy.yaml`, and read-only
   `k8s/base/auth/{networkpolicy,jobs/*}` for the Hydra client and Keto tuple inventory.
 - **Out of scope:** Hydra, Keto and the registry themselves; key custody; the registry credential
   inventory (maintainer item, `OPERATOR_TASKS.md` "Image registry credentials", before mainnet).
-- **Environment (2026-10-09):** `go vet ./...` clean; `go test -race -cover ./...` green, 30 test
-  functions (48 runs with subtests): config 93.8%, hydra 94.4%, keto 93.5%, token 91.4%,
-  `cmd/server` 48.3% (the handler is covered; `main`, `healthCheck` and `logRequest` are not).
-  golangci-lint v2.13.0 and govulncheck v1.8.0 run in CI: Go CI and Publish (Docker) for `v0.1.6`
-  both succeeded 2026-10-09 (the local lint and govulncheck binaries are built with Go 1.25 and
-  cannot load a 1.26 module, so they were not re-run here). Live check: `GET
-  https://token.meddleware.co.uk/token` without credentials answers 401 with `Cache-Control:
-  no-store`.
+- **Environment (2026-10-18, 0.1.7 working tree):** `go vet ./...` clean; `gofmt -l` empty;
+  `go test -race -cover ./...` green with `GOTOOLCHAIN=go1.26.9`, 33 test functions (57 runs with
+  subtests): config 93.0%, hydra 92.6%, keto 88.9%, token 88.7%, `cmd/server` 57.9% (the handler is
+  covered; `main`, `healthCheck` and `logRequest` are not). golangci-lint v2.13.0 reports 0 issues and
+  govulncheck v1.8.0 reports no vulnerabilities (both run under Go 1.26.9). A rootless podman build of
+  the Dockerfile succeeded and `CONTAINER_CLI=podman scripts/check-image-notices.sh` passed. Go CI and
+  Publish (Docker) for `v0.1.6` both succeeded 2026-10-09. Live check (2026-10-09): `GET
+  https://token.meddleware.co.uk/token` without credentials answers 401 with `Cache-Control: no-store`.
 
 ## Findings
 
@@ -139,8 +143,8 @@ namespace is default-deny and admits the `registry` namespace only for the pod `
 on ports 4444 (Hydra public) and 4466 (Keto read). Cilium WireGuard has been live since 2026-10-01
 but the cluster has one node, so same-node pod traffic is not encrypted by it; there is no mutual
 authentication (decision D18: Cilium deprecated SPIRE mutual auth). The residual risk is a hostile
-pod on the node, bounded by the NetworkPolicy. `SECURITY.md` still claims SPIFFE mutual
-authentication — F17.
+pod on the node, bounded by the NetworkPolicy. `SECURITY.md` carried the SPIFFE mutual-authentication
+claim until 0.1.7 — corrected under F17.
 
 ### F5 — No `nbf`, no skew leeway
 
@@ -279,10 +283,8 @@ govulncheck found eleven standard-library advisories in 1.26.7).
 
 ### F16 — Only the first `scope` parameter is read
 
-**Severity:** Low   **Disposition:** DEFERRED — a one-line change plus a test (read `Query()["scope"]`,
-join the values and apply the F10 bounds to the joined string); not mainnet-blocked, to ship in the
-next patch release
-**Where:** `cmd/server/main.go` `handleToken` (`r.URL.Query().Get("scope")`)
+**Severity:** Low   **Disposition:** RESOLVED (0.1.7)
+**Where:** `cmd/server/main.go` `handleToken` (was `r.URL.Query().Get("scope")`), `internal/token/scope.go`
 **Issue:** the Distribution token specification says `scope` is repeated once per entry of the
 registry's challenge. `Get` returns the first value only, so later scopes are dropped silently. No
 test sends repeated parameters (the helper builds one `scope` value).
@@ -291,13 +293,22 @@ cross-repository mount: `repository:a:push,pull` and `repository:b:pull`) is gra
 entry and fails on the second. It fails closed — the service under-grants, never over-grants — and
 the current clients (CI push, node pull, the browser proxy) work because they request one scope at a
 time.
-**Remediation / evidence:** not yet changed in code.
+**Remediation / evidence:** `handleToken` reads `Query()["scope"]` through `token.ParseScopeParams`,
+which evaluates every parameter in order (each may itself hold space-separated entries) and applies the
+F10 bounds to the request as a whole: 4096 bytes summed over all values (`ErrScopeTooLong`) and 16
+entries over all values (`ErrTooManyScopes`), both 400 before any Keto call. The `access` list is still
+requested ∩ granted. Tests: `TestParseScopeParams` (order, several entries per parameter, empty and
+malformed values, both bounds spanning parameters, 4097 one-byte parameters),
+`TestToken_EveryRepeatedScopeParameterIsEvaluated` (cross-repository mount shape),
+`TestToken_RepeatedScopeParametersStayAFilterNeverAPassthrough` (push, delete and ungranted repositories
+dropped across parameters), `TestToken_ScopeBoundsApplyAcrossRepeatedParameters` (17 parameters, 17
+entries over three parameters, 3 x 2064 bytes, Keto never asked; exactly 16 parameters passes).
+Commit pending.
 
 ### F17 — `SECURITY.md` and a runbook still claim mutual authentication to Hydra and Keto
 
-**Severity:** Low   **Disposition:** DEFERRED — documentation fix in `SECURITY.md` ("Transport to Hydra
-and Keto") and `docs/runbooks/keto-outage.md` (the line on "the mutual-auth policy"), to ship with the
-next patch release
+**Severity:** Low   **Disposition:** RESOLVED (0.1.7) — `SECURITY.md` ("Transport to Hydra and Keto")
+and `docs/runbooks/keto-outage.md` corrected to decision D18
 **Where:** `SECURITY.md`, `docs/runbooks/keto-outage.md`
 **Issue:** `SECURITY.md` says in-cluster traffic has "SPIFFE-based mutual authentication on the
 token-service → Hydra/Keto path". The platform runs no mutual authentication
@@ -306,20 +317,34 @@ already records the correction.
 **Impact:** a reader of the security policy would overstate the control on the hop that carries client
 secrets in clear text inside the cluster. The real controls are the NetworkPolicy (F4) and, between
 nodes, WireGuard.
-**Remediation / evidence:** not yet changed in the repository's documents; the audit text is correct.
+**Remediation / evidence:** `SECURITY.md` now says the hop is plaintext and not mutually authenticated
+(SPIRE mutual-auth withdrawn, D18) and lists the real controls: the Cilium-enforced NetworkPolicy,
+Hydra client-secret authentication (Keto's read API takes no credential, so there the NetworkPolicy is
+the whole control), and single-node traffic with WireGuard between nodes. The Keto outage runbook no
+longer names a mutual-auth policy. No other file in the repository mentions SPIFFE, mutual
+authentication or a mesh (grep). Commit pending.
 
 ### F18 — Licence notices of bundled modules not shipped
 
-**Severity:** Low   **Disposition:** DEFERRED — add the `golang-jwt/jwt` (MIT) and `google/uuid`
-(BSD-3-Clause) licence texts to the runtime stage (for example `/THIRD_PARTY_LICENSES`, as the web
-images do) and check it in CI; to ship in the next patch release
+**Severity:** Low   **Disposition:** RESOLVED (0.1.7) — the licence texts of `golang-jwt/jwt` (MIT),
+`google/uuid` (BSD-3-Clause) and the Go standard library ship in the image, and CI checks them
 **Where:** `Dockerfile` runtime stage (`scratch`, binary and CA bundle only)
 **Issue:** the compiled binary contains both modules; the image carries neither licence text. The
 `.dockerignore` also excludes the project's own `LICENSE`, which the OCI label (`0BSD`) covers. The
 SBOM attestation (`anchore/sbom-action` on the pushed image) lists the modules from the Go build
 information, so the dependency list itself is present.
 **Impact:** redistribution without the MIT and BSD notices; no security effect.
-**Remediation / evidence:** not yet changed.
+**Remediation / evidence:** `scripts/third-party-licenses.sh` runs in the builder stage: it lists the
+non-main modules of `go list -deps ./cmd/server`, collects each module's `LICENSE`/`COPYING`/`NOTICE`
+files (the build fails if a module has none) and appends the Go standard library `LICENSE`. The
+runtime stage copies the result and the project's own `LICENSE` to
+`/usr/share/doc/registry-token-service/{THIRD_PARTY_LICENSES,LICENSE}`; `LICENSE` is no longer in
+`.dockerignore`. `scripts/check-image-notices.sh` builds the image, copies the files out of a created
+container and asserts both files are non-empty, every module in `go list -m all` and the standard
+library are named, the MIT and BSD texts are present and `LICENSE` matches the repository's; it is the
+`image` job of `go-ci.yml`, which the release workflow calls (`verify`), so a tag cannot ship without
+it. Run locally with rootless podman (`CONTAINER_CLI=podman`) on the 0.1.7 tree: passed. Commit
+pending.
 
 ### F19 — Hydra and Keto error bodies reach the error log
 
@@ -350,27 +375,30 @@ credential cache.
 
 ### F21 — `.git` is not excluded from the build context
 
-**Severity:** Info   **Disposition:** ACCEPTED-RISK — the data only enters the discarded build stage
-(`COPY . .`); the `scratch` runtime stage copies the binary and the CA bundle, so no layer of the
-published image holds it, and CI builds from a clean checkout. The one-line fix (`.git` in
-`.dockerignore`) can ride with the next release.
+**Severity:** Info   **Disposition:** RESOLVED (0.1.7) — `.git` is in `.dockerignore`. (Before: the data
+only entered the discarded build stage, so no layer of the published image held it.)
 **Where:** `.dockerignore` (excludes `.env*`, `.github/`, docs and licence files, not `.git`)
 **Issue:** the IMG lens asks that VCS data be kept out of the build context.
 **Impact:** none on the image; a local build would send `.git` to the daemon.
-**Remediation / evidence:** noted 2026-10-09.
+**Remediation / evidence:** `.dockerignore` now lists `.git`; the 0.1.7 podman build and notices check
+succeed with it. Commit pending.
 
 ### F22 — Published `cosign verify` command is repository-wide, not workflow-pinned
 
-**Severity:** Low   **Disposition:** DEFERRED — documentation fix: the `README.md` command (and the
-workspace's `bootstrap/images/verify-digests.sh` default, which uses the same shape) should use the
-anchored form `^https://github.com/meddleware-org/registry-token-service/\.github/workflows/docker-publish\.yml@refs/tags/v`,
-as static-server's `SECURITY.md` already does; to ship with the next patch release
+**Severity:** Low   **Disposition:** RESOLVED (0.1.7) for this repository — the `README.md` command is
+workflow-pinned. The workspace's `bootstrap/images/verify-digests.sh` default
+(`(?i)https://github.com/meddleware-org/${name}/`) has the same breadth and is outside this
+repository: a platform item for the orchestrator.
 **Where:** `README.md` "Verifying" section
 **Issue:** `--certificate-identity-regexp 'https://github.com/meddleware-org/registry-token-service/.*'`
 is unanchored and accepts a signature from any workflow in the repository, on any ref (IMG-M8).
 **Impact:** a verifier trusts more than the release workflow; the cluster-side check
 (`verify-digests.sh`, 16/16 valid on 2026-10-09) inherits the same breadth.
-**Remediation / evidence:** not yet changed.
+**Remediation / evidence:** the README command now uses
+`--certificate-identity-regexp '^https://github\.com/meddleware-org/registry-token-service/\.github/workflows/docker-publish\.yml@refs/tags/v.*$'`,
+the shape `platform-probe`'s README uses. The signing job is `publish-public` in `docker-publish.yml`
+(the CI workflow it calls does not sign), so the identity is that workflow on a `v*` tag. Commit
+pending.
 
 ## Section A — Invariant verification matrix
 
@@ -383,11 +411,11 @@ is unanchored and accepts a signature from any workflow in the repository, on an
 | I5 | Short-lived, stateless tokens | issuer; TTL bounds | `config_test.go` | HOLDS (F7) |
 | I6 | `service` must match | handler | `TestToken_ServiceMustNameThisService`; `TestHandleToken_ServiceMismatch` | HOLDS (F1) |
 | I7 | Unauthenticated requests never reach an anchor | handler | `TestToken_NoCredentialsNeverReachesAnAnchor` | HOLDS |
-| I8 | A request is bounded (16 entries, 4096 bytes) | `handleToken` | `TestToken_RequestsAreBounded` | HOLDS (F10) |
+| I8 | A request is bounded (16 entries, 4096 bytes, over all `scope` parameters) | `token.ParseScopeParams` | `TestToken_RequestsAreBounded`; `TestToken_ScopeBoundsApplyAcrossRepeatedParameters` | HOLDS (F10, F16) |
 | I9 | Only a well-formed repository name becomes a Keto object | `token.ValidRepositoryName` | `TestToken_MalformedRepositoryNamesNeverReachKeto`; `TestValidRepositoryName` | HOLDS (F10) |
 | I10 | Every token answer is `no-store` | top of `handleToken` | handler tests; live 401 on 2026-10-09 | HOLDS (F11) |
 | I11 | Each grant is logged with requested and granted scope, never a credential | `handleToken` | `TestToken_AuditLineNamesWhatWasGrantedAndNeverTheSecret` | HOLDS (F12) |
-| I12 | Every requested scope entry is evaluated, including repeated `scope` parameters | `handleToken` (`Query().Get`) | none | GAP — F16 (under-grants, fails closed) |
+| I12 | Every requested scope entry is evaluated, including repeated `scope` parameters; the bounds span all of them | `token.ParseScopeParams` via `handleToken` | `TestParseScopeParams`; `TestToken_EveryRepeatedScopeParameterIsEvaluated`; `TestToken_RepeatedScopeParametersStayAFilterNeverAPassthrough`; `TestToken_ScopeBoundsApplyAcrossRepeatedParameters` | HOLDS (F16) |
 | I13 | Signing key rotates with overlap and has a compromise procedure | `docs/runbooks/key-rotation.md` | not rehearsed | HOLDS (code-only) — F14 |
 
 ### Lens categories
@@ -396,7 +424,7 @@ is unanchored and accepts a signature from any workflow in the repository, on an
 | --- | --- | --- |
 | GO | HTTP server hygiene | HOLDS (code-only) — `ReadTimeout` 10 s (covers headers; no separate `ReadHeaderTimeout`), `WriteTimeout` 15 s, `IdleTimeout` 60 s, `MaxHeaderBytes` at the net/http default (1 MiB, behind nginx and Cloudflare); `GET`-only routes (the mux answers 405 otherwise); no request body is read; a handler panic is recovered per connection by net/http |
 | GO | Outbound calls | HOLDS — Hydra `http.Client` 10 s, body ≤ 4096 B; Keto 5 s, body ≤ 1024 B; in-cluster `http`, no TLS settings to weaken (F4); the default redirect policy is left, the hosts are fixed in-cluster services |
-| GO | Input & path handling | HOLDS — no file access; scope size, entry count and name grammar are bounded (F10) |
+| GO | Input & path handling | HOLDS — no file access; scope size, entry count (over all `scope` parameters) and name grammar are bounded (F10, F16) |
 | GO | AuthN / AuthZ | HOLDS — see the AUTH rows; no local secret comparison exists (Hydra checks) |
 | GO | Secrets | HOLDS — key from a read-only Secret mount; client secrets only in the Hydra request, never logged (`TestToken_AuditLineNamesWhatWasGrantedAndNeverTheSecret`) |
 | GO | Client identity / rate limits | at the ingress: Cloudflare rule (5 per 10 s per IP on `/token`) and nginx 2 r/s burst 20 on the last `X-Forwarded-For` hop (`docs/networking/RATE_LIMITS.md`); the service keys nothing on a client address |
@@ -406,15 +434,15 @@ is unanchored and accepts a signature from any workflow in the repository, on an
 | GO | Error handling | HOLDS — fixed JSON error bodies; Hydra/Keto bodies reach only the log (F19) |
 | GO | CI (B.GO-1) | HOLDS — `go.sum` committed; `go vet`, golangci-lint v2.13.0, `go test -race`, govulncheck v1.8.0 (pinned) and a Trivy filesystem scan in `go-ci.yml`; build uses `-trimpath`, `CGO_ENABLED=0`, version injected with `-X main.version` |
 | IMG | Base images | HOLDS — builder digest-pinned and checked against the `go.mod` toolchain; runtime `scratch` |
-| IMG | Build context | HOLDS with a nit — `.env*` excluded; `.git` is not (F21) |
+| IMG | Build context | HOLDS — `.env*` and `.git` excluded (F21) |
 | IMG | Reproducible build stage | HOLDS — `go mod download` from `go.mod`/`go.sum`; no installers; only the binary and CA bundle reach the runtime stage |
 | IMG | No secrets in layers | HOLDS — build args are OCI label strings |
 | IMG | Runtime user & filesystem | HOLDS — `USER 65534:65534`; pod: `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, capabilities dropped, `RuntimeDefault` seccomp, `automountServiceAccountToken: false` |
 | IMG | Runtime configuration | HOLDS — the image sets only `PORT`; the manifest sets `TOKEN_*`, `HYDRA_TOKEN_URL`, `KETO_READ_URL`, `RSA_PRIVATE_KEY_PATH`, `LOG_LEVEL` |
 | IMG | Health & resources | HOLDS — readiness and liveness on `/healthz`; requests 20m/32Mi, limits 200m/128Mi |
-| IMG | SBOM & notices | SBOM HOLDS (SPDX attestation from the pushed image); licence notices GAP — F18 |
+| IMG | SBOM & notices | HOLDS — SPDX attestation from the pushed image; licence notices of the bundled modules, the Go standard library and the service's own `LICENSE` in `/usr/share/doc/registry-token-service/`, checked in CI (F18) |
 | IMG | Scan before sign | HOLDS — Trivy on the pushed digest before `cosign sign` (F15) |
-| IMG | Verification command | GAP — F22 |
+| IMG | Verification command | HOLDS — the README command is pinned to `docker-publish.yml@refs/tags/v*` (F22); the workspace `verify-digests.sh` default is broader (platform item) |
 | IMG | Deployment pinning | HOLDS — digest from `config/images.yaml` stamped into the `registry` overlay; cosign-verified 2026-10-09 |
 | AUTH | Issuer keys & signing | HOLDS — RS256 fixed in code (`jwt.SigningMethodRS256`); key ≥ 4096-bit from a mounted file; `kid` = RFC 7638 thumbprint (tested against the RFC example); rotation with overlap documented (F14), not rehearsed |
 | AUTH | Token claims & lifetime | HOLDS — `iss`, `aud` (string), `sub` (the authenticated client), `exp`, `iat`, `jti` (UUID); no `nbf` (F5); TTL 60–3600 s enforced, 300 s deployed; claims minimal |
@@ -428,7 +456,7 @@ is unanchored and accepts a signature from any workflow in the repository, on an
 | AUTH | Identity-provider configuration | out of this repository (PLATFORM lens); Hydra client-credentials only, no registration flow involved |
 | AUTH | Error & enumeration hygiene | HOLDS — 401 with `WWW-Authenticate: Basic` for missing or invalid credentials, uniform `invalid credentials` body; 400 for bad input; 503 for anchors; the log carries bounded anchor text (F19) |
 | AUTH | Abuse limits | HOLDS at the edge — Cloudflare rule plus nginx per-IP limit; the service has none of its own (F20 notes the Hydra cost) |
-| AUTH | Transport to identity services | MITIGATED — in-cluster `http`; NetworkPolicy to the single pod, WireGuard between nodes, one node; no mutual authentication (F4, F17) |
+| AUTH | Transport to identity services | MITIGATED — in-cluster `http`; NetworkPolicy to the single pod, WireGuard between nodes, one node; no mutual authentication, stated in `SECURITY.md` (F4, F17) |
 | AUTH | Audit trail | HOLDS — `token issued` line (F12); Hydra and Keto keep their own admin logs |
 
 ## Section B — Supply-chain, publish-authority & capability matrix
@@ -497,7 +525,7 @@ Distribution token authentication specification (Docker Registry v2 token auth),
 JWT header `typ`/`alg` RS256 and `kid` = JWK SHA-256 thumbprint (RFC 7638) matching the registry's
 trusted key; claims `iss`, `sub`, `aud` (a plain string, as the Distribution v3 parser expects), `exp`,
 `iat`, `jti`, `access` (`type`, `name`, `actions`). Deviations: no `nbf` (F5); the `access` list can
-be empty with 200 (F2, as the flow requires); repeated `scope` parameters are not honoured (F16);
+be empty with 200 (F2, as the flow requires); repeated `scope` parameters are honoured (F16);
 `offline_token`, `client_id` and `account` are ignored. The wire shape is pinned by `TestSignClaims`
 (`aud` string, `kid`, TTL span, access list) and `TestThumbprintMatchesRFC7638`. No RFC 9728 or OIDC
 discovery applies.
@@ -509,13 +537,13 @@ discovery applies.
 | Dimension | Assessment |
 | --- | --- |
 | Happy-path coverage | covered — intersection, organisation fallback, catalog (`token_flow_test.go`) |
-| Error-path coverage | covered — no credentials, invalid credentials, every Hydra and Keto failure mode, unreachable anchors, bad `service`, oversize and over-long scope |
+| Error-path coverage | covered — no credentials, invalid credentials, every Hydra and Keto failure mode, unreachable anchors, bad `service`, oversize and over-long scope (also spread over repeated parameters) |
 | Boundary / edge cases | covered — exactly 16 entries passes, 17 fails; malformed and 256-byte names; empty scope; unknown types and actions; TTL bounds; 2048-bit key refused |
-| Security-relevant coverage | covered — `kid` against the RFC 7638 example; string `aud`; no secret in the log; deny by default. Not covered: repeated `scope` parameters (F16); `main`, shutdown and `logRequest`; rotation (verifier is the registry) |
+| Security-relevant coverage | covered — `kid` against the RFC 7638 example; string `aud`; no secret in the log; deny by default. Repeated `scope` parameters, with the bounds across them (F16). Not covered: `main`, shutdown and `logRequest`; rotation (verifier is the registry) |
 
-`go test -race -cover ./...` on 2026-10-09: 30 test functions (48 runs with subtests), all passing;
-`cmd/server` 48.3%, `internal/config` 93.8%, `internal/hydra` 94.4%, `internal/keto` 93.5%,
-`internal/token` 91.4%.
+`go test -race -cover ./...` on 2026-10-18 (0.1.7 tree): 33 test functions (57 runs with subtests), all
+passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `internal/keto` 88.9%,
+`internal/token` 88.7%.
 
 ### C.2 Hermetic vs. live paths
 
@@ -533,7 +561,7 @@ discovery applies.
 - [x] algorithm pinned; keys from a mounted file; nothing secret in source or logs — `jwt.SigningMethodRS256`, `config.Load`, F12 test
 - [x] fail-closed tests for Hydra and Keto outages green — `TestToken_EveryAnchorFailureIsA503`, `TestToken_AnUnreachableAnchorIsA503`
 - [x] server timeouts, body limits (no body read; request bounded by F10) and outbound client timeouts set
-- [x] every `FROM` digest-pinned; `.dockerignore` excludes local env files (the `.git` nit is F21); lockfile install; no secrets in `ARG`/`ENV`/`COPY`/`RUN`
+- [x] every `FROM` digest-pinned; `.dockerignore` excludes local env files and `.git` (F21); lockfile install; no secrets in `ARG`/`ENV`/`COPY`/`RUN`
 
 ### pre-testnet
 
@@ -542,8 +570,8 @@ discovery applies.
 - [x] B.AUTH-1 key and credential inventory and B.AUTH-2 client and relation inventory complete (above)
 - [x] OAuth clients registered with minimal grants (client-credentials only, no redirect URIs); the browser client has no `pushers` tuple
 - [x] non-root runtime; pod security context complete; probes and limits set; deployment by digest from `config/images.yaml`
-- [ ] documentation matches the platform — F17 (mutual-authentication claim), F22 (workflow-pinned verify command), F18 (licence notices): next patch release
-- [ ] repeated `scope` parameters evaluated — F16: next patch release
+- [x] documentation matches the platform — F17 (`SECURITY.md` and the Keto runbook state D18), F22 (README `cosign verify` pinned to `docker-publish.yml@refs/tags/v*`), F18 (notices in the image, `scripts/check-image-notices.sh` in CI): 0.1.7, commit pending
+- [x] repeated `scope` parameters evaluated — F16: `token.ParseScopeParams`, bounds across all parameters, four tests (0.1.7, commit pending)
 
 ### pre-mainnet
 
@@ -569,8 +597,9 @@ discovery applies.
 ## Normative requirements (MUST / MUST NOT)
 
 - **GO-M1–GO-M8** — hold (GO-M6 at the ingress; GO-M1 as stated in Section A, the request body is never read).
-- **IMG-M1–IMG-M7** — hold. **IMG-M8** — scan before sign and the SBOM hold; licence notices (F18) and
-  the workflow-pinned verification command (F22) do not yet.
+- **IMG-M1–IMG-M8** — hold: scan before sign, the SBOM, licence notices in the image (F18) and the
+  workflow-pinned verification command in the README (F22). The workspace `verify-digests.sh` default
+  is broader than the README command (platform item).
 - **AUTH-M1** — N/A (the service does not verify tokens); its issuer side holds: RS256 fixed in code,
   `kid` from the key.
 - **AUTH-M2** — holds for the signing key (mounted file); rotation with overlap is written down (F14)
@@ -586,10 +615,8 @@ discovery applies.
 
 - SHOULD give organisation objects a distinct prefix in Keto (e.g. `org:<name>`), with a one-time
   tuple migration, so repository and organisation grants can never coincide (F9).
-- SHOULD read every `scope` parameter and add a repeated-parameter test (F16).
-- SHOULD correct `SECURITY.md` and the Keto runbook on mutual authentication (F17), ship licence
-  texts in the image (F18), add `.git` to `.dockerignore` (F21) and anchor the `cosign verify`
-  regexp (F22) in one patch release.
+- SHOULD anchor the default identity regexp of the workspace's `bootstrap/images/verify-digests.sh` to
+  each image's release workflow, as the README now does (F22; outside this repository).
 - MAY add a rotation rehearsal script that signs with two keys and checks a registry accepts both.
 - MAY add the missing 0.1.1 and 0.1.2 changelog entries.
 
@@ -610,8 +637,8 @@ discovery applies.
 
 - **Anchor liveness** — Keto or Hydra down halts all pushes and pulls (by design).
 - **Key custody** — the signing key forges any token; rotation is documented but unrehearsed.
-- **Plaintext hop** — Hydra/Keto traffic is in-cluster `http` with no mutual authentication; on one
-  node, a hostile pod on the node is bounded only by the NetworkPolicy.
+- **Plaintext hop** — Hydra/Keto traffic is in-cluster `http` with no mutual authentication (stated
+  in `SECURITY.md`); on one node, a hostile pod on the node is bounded only by the NetworkPolicy.
 - **Supply-chain mutability** — Hydra, Keto and the registry are upstream images; registry robot
   credentials are long-lived until the maintainer inventory is done.
 
@@ -634,3 +661,16 @@ discovery applies.
   findings — 11 RESOLVED (F1, F3, F4, F7, F8, F10–F15), 2 ADJUDICATED (F2, F9), 4 ACCEPTED-RISK (F5,
   F19, F20, F21), 4 DEFERRED (F16, F17, F18, F22), 1 Positive (F6). The DEFERRED items are
   documentation or one-line code changes for the next patch release, not mainnet-blocked.
+- 2026-10-18 — fix wave, 0.1.7 (release pending): F16 RESOLVED (`token.ParseScopeParams` evaluates every
+  `scope` parameter; the 16-entry and 4096-byte bounds span all of them; four new tests), F17 RESOLVED
+  (`SECURITY.md` and the Keto runbook state decision D18), F18 RESOLVED (licence notices of the Go
+  modules and the standard library plus `LICENSE` in `/usr/share/doc/registry-token-service/`;
+  `scripts/third-party-licenses.sh`, `scripts/check-image-notices.sh`, `image` job in `go-ci.yml`), F21
+  RESOLVED (`.git` in `.dockerignore`), F22 RESOLVED for the README (the workspace `verify-digests.sh`
+  default is a platform item). F19, F20 stay ACCEPTED-RISK (the Hydra token and bounded log text are
+  inherent to delegating to Hydra), F5 stays ACCEPTED-RISK (the registry applies its own leeway), F9
+  stays ADJUDICATED (an organisation prefix needs a live tuple migration). The key-rotation rehearsal,
+  the registry credential inventory and the external review remain maintainer items. Totals: 22
+  findings — 16 RESOLVED (F1, F3, F4, F7, F8, F10–F18, F21, F22), 2 ADJUDICATED (F2, F9), 3
+  ACCEPTED-RISK (F5, F19, F20), 0 DEFERRED, 1 Positive (F6). golangci-lint v2.13.0, govulncheck v1.8.0,
+  `go vet`, `gofmt`, `go test -race` and a rootless podman build all clean.

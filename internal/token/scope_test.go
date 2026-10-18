@@ -86,3 +86,66 @@ func TestValidRepositoryName(t *testing.T) {
 		}
 	}
 }
+
+func TestParseScopeParams(t *testing.T) {
+	t.Run("every repeated parameter is evaluated, in order", func(t *testing.T) {
+		got, err := ParseScopeParams([]string{"repository:a/one:push,pull", "repository:b/two:pull", "registry:catalog:*"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []ScopeItem{
+			{Type: "repository", Name: "a/one", Actions: []string{"push", "pull"}},
+			{Type: "repository", Name: "b/two", Actions: []string{"pull"}},
+			{Type: "registry", Name: "catalog", Actions: []string{"*"}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a repeated parameter may itself hold several space-separated entries", func(t *testing.T) {
+		got, err := ParseScopeParams([]string{"repository:a/one:pull repository:a/two:pull", "repository:b/three:pull"})
+		if err != nil || len(got) != 3 {
+			t.Fatalf("got %+v, %v; want 3 items", got, err)
+		}
+	})
+
+	t.Run("no parameter, empty and malformed values give no items and no error", func(t *testing.T) {
+		for _, in := range [][]string{nil, {}, {""}, {"", ""}, {"repository:a/b"}} {
+			if got, err := ParseScopeParams(in); err != nil || len(got) != 0 {
+				t.Errorf("ParseScopeParams(%q) = %+v, %v; want nothing", in, got, err)
+			}
+		}
+	})
+
+	t.Run("the entry bound spans all parameters", func(t *testing.T) {
+		// MaxScopeItems entries pass however they are split; one more fails.
+		atLimit := make([]string, MaxScopeItems)
+		for i := range atLimit {
+			atLimit[i] = "repository:org/app:pull"
+		}
+		if got, err := ParseScopeParams(atLimit); err != nil || len(got) != MaxScopeItems {
+			t.Fatalf("%d entries: %d items, %v", MaxScopeItems, len(got), err)
+		}
+		if _, err := ParseScopeParams(append(atLimit, "repository:org/app:pull")); err != ErrTooManyScopes {
+			t.Errorf("%d entries: err = %v, want ErrTooManyScopes", MaxScopeItems+1, err)
+		}
+	})
+
+	t.Run("the byte bound spans all parameters", func(t *testing.T) {
+		half := strings.Repeat("a", MaxScopeBytes/2)
+		if _, err := ParseScopeParams([]string{half, half}); err != nil {
+			t.Fatalf("exactly %d bytes: %v", MaxScopeBytes, err)
+		}
+		if _, err := ParseScopeParams([]string{half, half, "x"}); err != ErrScopeTooLong {
+			t.Errorf("%d bytes over several parameters: err = %v, want ErrScopeTooLong", MaxScopeBytes+1, err)
+		}
+		many := make([]string, MaxScopeBytes+1)
+		for i := range many {
+			many[i] = "x"
+		}
+		if _, err := ParseScopeParams(many); err != ErrScopeTooLong {
+			t.Errorf("%d one-byte parameters: err = %v, want ErrScopeTooLong", len(many), err)
+		}
+	})
+}

@@ -78,5 +78,6 @@ Token-service `503` rate on `/token` should return to zero.
 - Run Keto with ≥ 2 replicas and a PodDisruptionBudget so a single node drain cannot take it down.
 - Set readiness probes + resource requests/limits on Keto to avoid OOM crashloops.
 - Ensure the Keto datastore is HA / backed up.
-- Gate changes to `k8s/base/auth/networkpolicy.yaml` and the mutual-auth policy in review — a
-  NetworkPolicy regression is a common cause of a "Keto is up but unreachable" outage.
+- Gate changes to `k8s/base/auth/networkpolicy.yaml` in review — a NetworkPolicy regression is a
+  common cause of a "Keto is up but unreachable" outage. (There is no mutual-authentication policy on
+  this hop; the NetworkPolicy is the control.)

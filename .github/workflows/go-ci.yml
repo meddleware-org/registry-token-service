@@ -6,7 +6,8 @@ name: Go CI
 # tagging is the release gate.
 #
 # Jobs: lint (golangci-lint) → test (vet + race) → vuln (govulncheck) →
-#       scan (Trivy filesystem: vulnerabilities + misconfig + secrets).
+#       scan (Trivy filesystem: vulnerabilities + misconfig + secrets) →
+#       image (builds the image; licence notices of the bundled code are present).
 
 on:
   push:
@@ -78,3 +79,15 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           version: v0.74.0
+
+  image:
+    name: Image builds and ships licence notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the image and check /usr/share/doc/registry-token-service
+        run: sh scripts/check-image-notices.sh

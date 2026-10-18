@@ -42,16 +42,23 @@ in scope and treated as high severity:
 The service calls Hydra (`HYDRA_TOKEN_URL`) and Keto (`KETO_READ_URL`) over **in-cluster HTTP**
 (ClusterIP services in the `auth` namespace, e.g. `http://hydra.auth.svc.cluster.local:4444`).
 `config.Load` validates both are well-formed `http(s)` URLs with a host and fails fast otherwise.
-Two controls bound this plaintext hop:
+The hop is plaintext and **not mutually authenticated**: the platform runs no SPIFFE/SPIRE mutual
+authentication (withdrawn, decision D18: Cilium deprecated the feature, and its successor cannot serve
+traffic between enrolled and non-enrolled pods). The controls that bound it are:
 
 - **NetworkPolicy.** The `auth` namespace runs default-deny ingress; only the `token-service` pod
   (in the `registry` namespace) may reach Hydra `:4444` and Keto `:4466`
-  (`k8s/base/auth/networkpolicy.yaml`). No other pod can reach the auth services on those ports.
-- **Transport encryption is a platform concern.** In-cluster pod-to-pod traffic is encrypted at the
-  CNI layer (Cilium WireGuard transparent encryption), with SPIFFE-based mutual authentication on the
-  token-service → Hydra/Keto path. Application-level mTLS is intentionally **not** implemented here;
-  the client-credentials (Basic auth to Hydra) and Keto queries rely on the platform mesh for
-  confidentiality and peer authentication.
+  (`k8s/base/auth/networkpolicy.yaml`), enforced by Cilium. No other pod can reach the auth services
+  on those ports.
+- **Hydra client-secret authentication.** Hydra accepts a token request only with a valid client
+  secret; a peer that reaches Hydra without one is refused. Keto's read API takes no credential, so
+  for Keto the NetworkPolicy is the whole control.
+- **Single-node traffic.** On the current single-node cluster the traffic never leaves the host.
+  Between nodes it would be encrypted by Cilium WireGuard transparent encryption (applied to the live
+  release; no peers yet).
+
+Application-level mTLS is intentionally **not** implemented here, and the service does not
+authenticate its peers: a hostile pod on the same node is bounded only by the NetworkPolicy.
 
 ## Signing-key custody
 

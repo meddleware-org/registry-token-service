@@ -26,6 +26,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     -o /out/token-service \
     ./cmd/server
 
+# Licence notices of what the binary contains (the Go modules and the standard library); the build fails if a
+# module has no licence file. The project's own LICENSE is copied beside them.
+RUN mkdir -p /out/doc && sh scripts/third-party-licenses.sh /out/doc/THIRD_PARTY_LICENSES && cp LICENSE /out/doc/LICENSE
+
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 # scratch: zero OS footprint. The binary is fully self-contained.
 FROM scratch
@@ -50,6 +54,8 @@ LABEL org.opencontainers.image.title="registry-token-service" \
 
 COPY --from=builder /out/token-service /token-service
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# MIT (golang-jwt/jwt), BSD-3-Clause (google/uuid, Go) notices and the 0BSD licence of this service.
+COPY --from=builder /out/doc/ /usr/share/doc/registry-token-service/
 
 USER 65534:65534
 

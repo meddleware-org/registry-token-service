@@ -3,6 +3,7 @@
 package token
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 )
@@ -11,7 +12,7 @@ import (
 // to two sequential Keto checks, so an unbounded request would let any credential holder multiply its work
 // at the authorization service.
 const (
-	// MaxScopeBytes bounds the raw `scope` query value.
+	// MaxScopeBytes bounds the raw `scope` query values, summed over every `scope` parameter of a request.
 	MaxScopeBytes = 4096
 	// MaxScopeItems bounds the number of scope entries in one request.
 	MaxScopeItems = 16
@@ -67,6 +68,34 @@ func ParseScope(raw string) []ScopeItem {
 		})
 	}
 	return items
+}
+
+// Errors from ParseScopeParams; the handler answers both with 400.
+var (
+	// ErrScopeTooLong means the `scope` values together exceed MaxScopeBytes.
+	ErrScopeTooLong = errors.New("scope too long")
+	// ErrTooManyScopes means the request names more than MaxScopeItems scope entries.
+	ErrTooManyScopes = errors.New("too many scopes")
+)
+
+// ParseScopeParams parses every `scope` query parameter of a token request. The Distribution token
+// specification repeats `scope` once per challenge entry, and each value may itself hold several
+// space-separated entries, so all values are evaluated, in order. The bounds apply to the request as a
+// whole, before anything is parsed or sent to Keto: MaxScopeBytes over the summed length of all values and
+// MaxScopeItems over all entries. Repeating the parameter therefore never widens what one request may cost.
+func ParseScopeParams(values []string) ([]ScopeItem, error) {
+	total := 0
+	for _, v := range values {
+		total += len(v)
+		if total > MaxScopeBytes {
+			return nil, ErrScopeTooLong
+		}
+	}
+	items := ParseScope(strings.Join(values, " "))
+	if len(items) > MaxScopeItems {
+		return nil, ErrTooManyScopes
+	}
+	return items, nil
 }
 
 // FilterActions returns a copy of item with only the actions present in allowed.

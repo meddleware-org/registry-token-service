@@ -29,7 +29,8 @@ internal/config/config.go   Environment-variable configuration + RSA key loading
 internal/hydra/client.go    Hydra client_credentials validation
 internal/keto/client.go     Keto relation-tuple permission check
 internal/token/issuer.go    RS256 JWT signing (iss, sub, aud, access claims)
-internal/token/scope.go     Parse/filter Distribution scope strings
+internal/token/scope.go     Parse/filter Distribution scope strings (all repeated `scope` parameters, bounded as a whole)
+scripts/                    third-party-licenses.sh (image notices), check-image-notices.sh (CI)
 ```
 
 ## Key endpoints

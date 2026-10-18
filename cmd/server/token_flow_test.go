@@ -100,6 +100,15 @@ func request(scope string, auth bool) *http.Request {
 	return req
 }
 
+// requestScopes builds an authenticated request that repeats the `scope` parameter, once per value, as a
+// Docker client does for the entries of the registry's challenge.
+func requestScopes(scopes ...string) *http.Request {
+	q := url.Values{"service": {flowService}, "scope": scopes}
+	req := httptest.NewRequest(http.MethodGet, "/token?"+q.Encode(), nil)
+	req.SetBasicAuth("ci-client", "s3cr3t-value")
+	return req
+}
+
 type issued struct {
 	Token     string `json:"token"`
 	ExpiresIn int    `json:"expires_in"`
@@ -271,6 +280,85 @@ func TestToken_RequestsAreBounded(t *testing.T) {
 	exactly := strings.TrimSpace(strings.Repeat("repository:org/app:pull ", token.MaxScopeItems))
 	if rec := serve(h, request(exactly, true)); rec.Code != http.StatusOK {
 		t.Errorf("%d scope entries: status %d, want 200", token.MaxScopeItems, rec.Code)
+	}
+}
+
+func TestToken_EveryRepeatedScopeParameterIsEvaluated(t *testing.T) {
+	// A push with a cross-repository mount: the registry's challenge names the target (push, pull) and the
+	// source (pull) as separate entries, which the client sends as repeated `scope` parameters.
+	a := newAnchors(t, http.StatusOK, map[string]bool{
+		"org/target#pushers": true, "org/target#pullers": true, "org/source#pullers": true,
+	}, 0, "")
+	h, key := newFlow(t, a)
+	rec := serve(h, requestScopes("repository:org/target:push,pull", "repository:org/source:pull", "registry:catalog:*"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var body issued
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	got := accessOf(t, verify(t, body.Token, key))
+	if len(got) != 2 || strings.Join(got["repository:org/target"], ",") != "push,pull" || strings.Join(got["repository:org/source"], ",") != "pull" {
+		t.Fatalf("access = %v, want push,pull on org/target and pull on org/source (and no catalog: no listers tuple)", got)
+	}
+}
+
+func TestToken_RepeatedScopeParametersStayAFilterNeverAPassthrough(t *testing.T) {
+	// Keto grants pull on both repositories and push on neither; the client asks for more in each parameter.
+	a := newAnchors(t, http.StatusOK, map[string]bool{"org/one#pullers": true, "org/two#pullers": true}, 0, "")
+	h, key := newFlow(t, a)
+	rec := serve(h, requestScopes("repository:org/one:push,pull", "repository:org/two:push,delete", "repository:org/three:push,pull"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var body issued
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	got := accessOf(t, verify(t, body.Token, key))
+	if len(got) != 1 || strings.Join(got["repository:org/one"], ",") != "pull" {
+		t.Fatalf("access = %v, want only pull on org/one (push, delete and the ungranted repositories are dropped)", got)
+	}
+}
+
+func TestToken_ScopeBoundsApplyAcrossRepeatedParameters(t *testing.T) {
+	a := newAnchors(t, http.StatusOK, nil, 0, "")
+	h, _ := newFlow(t, a)
+
+	// Entry count: MaxScopeItems+1 entries, each in its own parameter.
+	many := make([]string, token.MaxScopeItems+1)
+	for i := range many {
+		many[i] = "repository:org/app:pull"
+	}
+	if rec := serve(h, requestScopes(many...)); rec.Code != http.StatusBadRequest {
+		t.Errorf("%d scope parameters: status %d, want 400", len(many), rec.Code)
+	}
+	// Mixed: half the entries in one parameter, the rest in two more.
+	mixed := []string{
+		strings.TrimSpace(strings.Repeat("repository:org/app:pull ", token.MaxScopeItems/2)),
+		strings.TrimSpace(strings.Repeat("repository:org/app:pull ", token.MaxScopeItems/2)),
+		"repository:org/app:pull",
+	}
+	if rec := serve(h, requestScopes(mixed...)); rec.Code != http.StatusBadRequest {
+		t.Errorf("%d entries over three parameters: status %d, want 400", token.MaxScopeItems+1, rec.Code)
+	}
+
+	// Bytes: each parameter is within the limit, the sum is not.
+	each := "repository:org/app:" + strings.Repeat("pull,", token.MaxScopeBytes/10)
+	if len(each) >= token.MaxScopeBytes || 3*len(each) <= token.MaxScopeBytes {
+		t.Fatalf("test setup: %d bytes per parameter does not straddle the %d-byte bound", len(each), token.MaxScopeBytes)
+	}
+	if rec := serve(h, requestScopes(each, each, each)); rec.Code != http.StatusBadRequest {
+		t.Errorf("3 x %d scope bytes: status %d, want 400", len(each), rec.Code)
+	}
+	if n := a.ketoCalls.Load(); n != 0 {
+		t.Errorf("Keto was asked %d times for requests that were refused as too large", n)
+	}
+
+	// Exactly at the entry bound, spread over parameters, is still served.
+	exactly := make([]string, token.MaxScopeItems)
+	for i := range exactly {
+		exactly[i] = "repository:org/app:pull"
+	}
+	if rec := serve(h, requestScopes(exactly...)); rec.Code != http.StatusOK {
+		t.Errorf("%d scope parameters: status %d, want 200", token.MaxScopeItems, rec.Code)
 	}
 }
 

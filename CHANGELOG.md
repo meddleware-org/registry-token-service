@@ -5,6 +5,21 @@ All notable changes to registry-token-service are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-10-18
+
+### Fixed
+
+- Every `scope` query parameter is evaluated, as the Docker token specification allows the parameter to be repeated (one per challenge entry, for example a push with a cross-repository mount); only the first was read before. The 16-entry and 4096-byte bounds apply to the request as a whole, over all parameters (400 beyond them), and the `access` list is still requested intersected with granted, never a passthrough.
+
+### Security
+
+- The image ships the licence notices of the code compiled into the binary (`/usr/share/doc/registry-token-service/THIRD_PARTY_LICENSES`: `golang-jwt/jwt` MIT, `google/uuid` BSD-3-Clause, the Go standard library) and this service's own `LICENSE`. The build fails if a module has no licence file, and CI builds the image and checks the files are present (`scripts/check-image-notices.sh`).
+- `.git` is excluded from the build context.
+
+### Changed
+
+- `SECURITY.md` and the Keto outage runbook no longer claim SPIFFE mutual authentication on the Hydra and Keto hop (withdrawn, decision D18): the controls are the Cilium-enforced NetworkPolicy, Hydra client-secret authentication and single-node traffic. The README `cosign verify` command is pinned to the release workflow on `v*` tags.
+
 ## [0.1.6] - 2026-10-09
 
 ### Security

@@ -139,7 +139,7 @@ type tokenResponse struct {
 // Query parameters:
 //
 //	service — registry hostname, must match TOKEN_SERVICE
-//	scope   — space-separated "type:name:actions" scope strings
+//	scope   — "type:name:actions" scope strings, space-separated; the parameter may be repeated
 //	account — Docker username (informational; clientID from Basic auth is used)
 func handleToken(
 	hydraClient *hydra.Client,
@@ -185,14 +185,11 @@ func handleToken(
 		}
 
 		// Step 2: evaluate requested scope against Keto.
-		rawScope := r.URL.Query().Get("scope")
-		if len(rawScope) > token.MaxScopeBytes {
-			writeError(w, http.StatusBadRequest, "scope too long")
-			return
-		}
-		scopeItems := token.ParseScope(rawScope)
-		if len(scopeItems) > token.MaxScopeItems {
-			writeError(w, http.StatusBadRequest, "too many scopes")
+		// Every `scope` parameter is evaluated (the token specification repeats it once per challenge
+		// entry); the size and entry bounds apply to the request as a whole.
+		scopeItems, err := token.ParseScopeParams(r.URL.Query()["scope"])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
