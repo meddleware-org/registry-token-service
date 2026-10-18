@@ -58,8 +58,8 @@ the key-rotation runbook (F14) and a release that runs full CI and scans the ima
 - **F18 (Low)** — the MIT and BSD licence notices of the two bundled modules were not shipped in the
   image. RESOLVED in 0.1.7.
 - **F22 (Low)** — the published `cosign verify` command accepted any workflow in the repository rather
-  than the release workflow. RESOLVED in 0.1.7 (README); the workspace's `verify-digests.sh` default is
-  a platform item outside this repository.
+  than the release workflow. RESOLVED in 0.1.7 (README); the workspace's `verify-digests.sh` default was
+  anchored to the release workflow on 2026-10-18, so nothing remains.
 - **F19, F20 (Info, ACCEPTED-RISK)** — bounded Hydra/Keto error bodies reach the error log; each
   validation mints and discards a Hydra token. **F21 (Info)** — `.git` was not in `.dockerignore`;
   RESOLVED in 0.1.7.
@@ -385,20 +385,21 @@ succeed with it. Released in `v0.1.7` (`d54598d`, 2026-10-18).
 
 ### F22 — Published `cosign verify` command is repository-wide, not workflow-pinned
 
-**Severity:** Low   **Disposition:** RESOLVED (0.1.7) for this repository — the `README.md` command is
-workflow-pinned. The workspace's `bootstrap/images/verify-digests.sh` default
-(`(?i)https://github.com/meddleware-org/${name}/`) has the same breadth and is outside this
-repository: a platform item for the orchestrator.
+**Severity:** Low   **Disposition:** RESOLVED (0.1.7: the `README.md` command is workflow-pinned; 2026-10-18: the workspace
+`bootstrap/images/verify-digests.sh` default, which had the same breadth, is now anchored to the release workflow too:
+`^https://github\.com/meddleware-org/${name}/\.github/workflows/docker-publish\.yml@refs/tags/v`, 16/16 deployed and contingency images valid).
 **Where:** `README.md` "Verifying" section
 **Issue:** `--certificate-identity-regexp 'https://github.com/meddleware-org/registry-token-service/.*'`
 is unanchored and accepts a signature from any workflow in the repository, on any ref (IMG-M8).
 **Impact:** a verifier trusts more than the release workflow; the cluster-side check
-(`verify-digests.sh`, 16/16 valid on 2026-10-09) inherits the same breadth.
+(`verify-digests.sh`, 16/16 valid on 2026-10-09) had the same breadth until 2026-10-18.
 **Remediation / evidence:** the README command now uses
 `--certificate-identity-regexp '^https://github\.com/meddleware-org/registry-token-service/\.github/workflows/docker-publish\.yml@refs/tags/v.*$'`,
 the shape `platform-probe`'s README uses. The signing job is `publish-public` in `docker-publish.yml`
 (the CI workflow it calls does not sign), so the identity is that workflow on a `v*` tag. Released in `v0.1.7`
-(`d54598d`, 2026-10-18).
+(`d54598d`, 2026-10-18). The workspace script's default identity became
+`^https://github\.com/meddleware-org/${name}/\.github/workflows/docker-publish\.yml@refs/tags/v` the same day (`STRICT=0 bash bootstrap/images/verify-digests.sh`: all 16 deployed and contingency
+images, this one included, verified valid against it); the README command was re-read and is workflow-pinned. Nothing remains.
 
 ## Section A — Invariant verification matrix
 
@@ -442,7 +443,7 @@ the shape `platform-probe`'s README uses. The signing job is `publish-public` in
 | IMG | Health & resources | HOLDS — readiness and liveness on `/healthz`; requests 20m/32Mi, limits 200m/128Mi |
 | IMG | SBOM & notices | HOLDS — SPDX attestation from the pushed image; licence notices of the bundled modules, the Go standard library and the service's own `LICENSE` in `/usr/share/doc/registry-token-service/`, checked in CI (F18) |
 | IMG | Scan before sign | HOLDS — Trivy on the pushed digest before `cosign sign` (F15) |
-| IMG | Verification command | HOLDS — the README command is pinned to `docker-publish.yml@refs/tags/v*` (F22); the workspace `verify-digests.sh` default is broader (platform item) |
+| IMG | Verification command | HOLDS — the README command is pinned to `docker-publish.yml@refs/tags/v*` (F22); the workspace `verify-digests.sh` default is anchored to the same workflow and tag refs since 2026-10-18 (F22) |
 | IMG | Deployment pinning | HOLDS — digest from `config/images.yaml` stamped into the `registry` overlay; cosign-verified 2026-10-09 |
 | AUTH | Issuer keys & signing | HOLDS — RS256 fixed in code (`jwt.SigningMethodRS256`); key ≥ 4096-bit from a mounted file; `kid` = RFC 7638 thumbprint (tested against the RFC example); rotation with overlap documented (F14), not rehearsed |
 | AUTH | Token claims & lifetime | HOLDS — `iss`, `aud` (string), `sub` (the authenticated client), `exp`, `iat`, `jti` (UUID); no `nbf` (F5); TTL 60–3600 s enforced, 300 s deployed; claims minimal |
@@ -599,7 +600,7 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 - **GO-M1–GO-M8** — hold (GO-M6 at the ingress; GO-M1 as stated in Section A, the request body is never read).
 - **IMG-M1–IMG-M8** — hold: scan before sign, the SBOM, licence notices in the image (F18) and the
   workflow-pinned verification command in the README (F22). The workspace `verify-digests.sh` default
-  is broader than the README command (platform item).
+  is anchored to the same workflow and tag refs since 2026-10-18 (F22).
 - **AUTH-M1** — N/A (the service does not verify tokens); its issuer side holds: RS256 fixed in code,
   `kid` from the key.
 - **AUTH-M2** — holds for the signing key (mounted file); rotation with overlap is written down (F14)
@@ -615,8 +616,8 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 
 - SHOULD give organisation objects a distinct prefix in Keto (e.g. `org:<name>`), with a one-time
   tuple migration, so repository and organisation grants can never coincide (F9).
-- SHOULD anchor the default identity regexp of the workspace's `bootstrap/images/verify-digests.sh` to
-  each image's release workflow, as the README now does (F22; outside this repository).
+- ~~SHOULD anchor the default identity regexp of the workspace's `bootstrap/images/verify-digests.sh` to
+  each image's release workflow, as the README now does (F22; outside this repository).~~ Done 2026-10-18.
 - MAY add a rotation rehearsal script that signs with two keys and checks a registry accepts both.
 - MAY add the missing 0.1.1 and 0.1.2 changelog entries.
 
@@ -675,3 +676,4 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
   ACCEPTED-RISK (F5, F19, F20), 0 DEFERRED, 1 Positive (F6). golangci-lint v2.13.0, govulncheck v1.8.0,
   `go vet`, `gofmt`, `go test -race` and a rootless podman build all clean.
 - 2026-10-18 — released and deployed (`v0.1.7` = `d54598d`, `0.1.7@sha256:28e733830019a40606ca2e9248deb8d4f967ed9015e6bcf08d9236097e668124`), verified live. Cosign keyless signature verified against the workflow-anchored identity (`verify-digests.sh` 16/16); rollout (`kubectl apply -k`, registry overlay) succeeded; unauthenticated `GET /token` answers 401 `no-store` and the status page reads the registry chain operational (re-read 2026-10-18). Key-rotation rehearsal, credential inventory and external review remain maintainer items.
+- 2026-10-18 — F22 (cosign identity) fully RESOLVED: the default identity in `bootstrap/images/verify-digests.sh` is now workflow-anchored (`^https://github\.com/meddleware-org/${name}/\.github/workflows/docker-publish\.yml@refs/tags/v`); all 16 deployed and contingency images verified valid against it (`STRICT=0 bash bootstrap/images/verify-digests.sh`), and the README `cosign verify` command is workflow-pinned (checked). The earlier note that the script default was a platform item is superseded; disposition RESOLVED, nothing remains.
