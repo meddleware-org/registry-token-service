@@ -493,8 +493,8 @@ overwrite protection beyond the registry's own); the digest, not the tag, is wha
 Each pushed image (quay.io and Docker Hub, multi-arch, signed at the index digest) carries a keyless
 cosign signature, an SPDX SBOM attached as a signed attestation (`cosign attest --type spdxjson`) and a
 GitHub build-provenance attestation, plus BuildKit `provenance: mode=max`; none of these steps uses
-`continue-on-error`. The self-hosted registry push (`publish-private`) is a best-effort mirror: it
-carries `continue-on-error`, is not signed, and fails without credentials (maintainer item).
+`continue-on-error`. The self-hosted registry copy (`mirror-private`) is a best-effort digest-preserving mirror: it
+carries `continue-on-error`, copies the signed public image (no rebuild), and fails without credentials (maintainer item).
 
 ### B.AUTH-1 Key & credential inventory
 
@@ -679,3 +679,4 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 - 2026-10-18 — F22 (cosign identity) fully RESOLVED: the default identity in `bootstrap/images/verify-digests.sh` is now workflow-anchored (`^https://github\.com/meddleware-org/${name}/\.github/workflows/docker-publish\.yml@refs/tags/v`); all 16 deployed and contingency images verified valid against it (`STRICT=0 bash bootstrap/images/verify-digests.sh`), and the README `cosign verify` command is workflow-pinned (checked). The earlier note that the script default was a platform item is superseded; disposition RESOLVED, nothing remains.
 - 2026-10-19 — dependency-bot status checked (read-only): `.github/dependabot.yml` carries the `ignore` rules and the repository has no open Dependabot pull requests (`gh pr list`, 2026-10-19). Versions, findings and gates were not re-examined in this pass.
   - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
+  - `docker-publish.yml`: the private rebuild jobs are replaced by one `mirror-private` job that copies the published quay.io image (and its cosign artifacts) to the self-hosted registry by digest and fails unless the digest and the signature match (build once, promote by digest; committed locally, not yet released; the `PRIVATE_REGISTRY_*` credentials are still unset).
