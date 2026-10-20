@@ -1,11 +1,14 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 # Base pinned by digest for reproducible builds; the tag is kept for readability.
 # To bump: docker buildx imagetools inspect golang:<go.mod toolchain>-bookworm --format '{{.Manifest.Digest}}'
-FROM golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS builder
+# The builder runs on the BUILD host's architecture and cross-compiles (pure Go, CGO off), so no arm64 step runs
+# under emulation. Nothing the builder executes is target-specific.
+FROM --platform=$BUILDPLATFORM golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS builder
 
 ARG VERSION=dev
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# Set by BuildKit/podman from --platform; a plain builder that leaves them empty fails the guard below.
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /src
 
@@ -19,12 +22,18 @@ RUN go mod download
 COPY . .
 
 # Fully static binary: no libc, no CGO — runs in scratch.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN : "${TARGETOS:?build with BuildKit or podman (sets TARGETOS)}" "${TARGETARCH:?build with BuildKit or podman (sets TARGETARCH)}" \
+    && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build \
     -trimpath \
     -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/token-service \
     ./cmd/server
+
+# The compiled binary must be the target architecture (go version -m reads it without running it): an
+# image of one architecture holding another's binary would pass every other check and fail only on a node.
+RUN [ "$(go version -m /out/token-service | sed -n 's/^[[:space:]]*build[[:space:]]*GOARCH=//p')" = "${TARGETARCH}" ] \
+    || { echo "/out/token-service is not built for ${TARGETARCH}"; exit 1; }
 
 # Licence notices of what the binary contains (the Go modules and the standard library); the build fails if a
 # module has no licence file. The project's own LICENSE is copied beside them.

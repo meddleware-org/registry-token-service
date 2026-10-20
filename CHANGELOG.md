@@ -5,6 +5,31 @@ All notable changes to registry-token-service are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-10-20
+
+### Changed
+
+- **Image build: native cross-compile, no QEMU.** The builder stage is `FROM --platform=$BUILDPLATFORM` and
+  compiles for the target with `GOOS=$TARGETOS GOARCH=$TARGETARCH` (`CGO_ENABLED=0`, `-trimpath` and the
+  ldflags unchanged), so the release no longer emulates arm64 and `docker-publish.yml` no longer has the
+  `docker/setup-qemu-action` step (a privileged binfmt step). `TARGETOS`/`TARGETARCH` have no default any more:
+  a builder that does not set them fails the build instead of silently producing the wrong architecture.
+  A build step also asserts, with `go version -m` (it reads the binary without running it), that the compiled
+  binary's `GOARCH` equals the target architecture.
+  Proof (rootless podman, builder pinned by digest): the new `linux/amd64` image built from the 0.1.7 sources with
+  `VERSION=v0.1.7` is **byte-identical to the published 0.1.7** (`/token-service` `f41cbae0…`; the CA bundle and
+  the `THIRD_PARTY_LICENSES` and `LICENSE` notices are byte-identical too). No behaviour change on amd64, the
+  architecture the cluster runs.
+
+### Fixed
+
+- **The published `linux/arm64` image carried an x86-64 binary.** The Dockerfile declared `ARG TARGETARCH=amd64`,
+  and that default overrode the platform value, so 0.1.7 and earlier compiled `GOARCH=amd64` in the arm64 build
+  too: the arm64 image's `/token-service` is byte-identical to the amd64 one (`f41cbae0…`, ELF x86-64) and would
+  not start on an arm64 node. With no default the arm64 image now contains an ELF aarch64 binary
+  (`3272d30e…`; `go version -m`: `GOARCH=arm64`, `CGO_ENABLED=0`, `-trimpath=true`). The cluster is amd64, so
+  nothing deployed was affected.
+
 ## [0.1.7] - 2026-10-18
 
 ### Fixed

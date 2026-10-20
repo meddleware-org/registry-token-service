@@ -136,6 +136,10 @@ docker build --build-arg VERSION=v0.1.0 \
   -t quay.io/meddleware-org/registry-token-service:v0.1.0 .
 ```
 
+The builder stage runs on the build host and cross-compiles for `--platform`, so a multi-platform build needs no
+QEMU emulation. It reads `TARGETOS`/`TARGETARCH` from BuildKit (the default `docker build` and `buildx`) or podman and
+fails if they are empty (the legacy builder does not set them).
+
 ## Contributing / development
 
 See [AGENTS.md](AGENTS.md) for the package layout, auth-flow detail, and testing

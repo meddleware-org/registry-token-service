@@ -19,7 +19,7 @@
 **Signing / client credentials:** `signing.key` (RSA ≥ 4096-bit, Secret `token-service-keys`, mounted file, no rotation cadence fixed — F14); the service holds no client secret of its own, it forwards the caller's Basic credentials to Hydra
 **Authorization model:** Keto namespace `Registry`; relations `pullers`, `pushers`, `admins` (repository, then organisation fallback) and `listers` (object `catalog`)
 **Deployment status:** image `quay.io/meddleware-org/registry-token-service` 0.1.7 (`sha256:28e73383…8124`; release tag `v0.1.7` = `d54598d`; released and deployed 2026-10-18, cosign signature verified against the workflow-anchored identity, `bootstrap/images/verify-digests.sh` 16/16; the rollout succeeded; 0.1.6 was cosign-verified and deployed 2026-10-09) running in namespace `registry` (`k8s/base/registry/token-service`); public through `token.meddleware.co.uk` (Cloudflare rate-limit rule plus nginx 2 r/s per IP)
-**Review date:** 2026-09-18 (first pass) · re-verified 2026-10-03 · re-verified 2026-10-09 · fix wave 2026-10-18
+**Review date:** 2026-09-18 (first pass) · re-verified 2026-10-03 · re-verified 2026-10-09 · fix wave 2026-10-18 · image build 2026-10-20 (0.1.8)
 **Reviewer:** Internal review
 **Severity ceiling:** High — it gates registry push and pull, so a scope escalation or fail-open defect would allow unauthorised image pushes. No Critical or High defect found; realised ceiling Medium (F1, resolved).
 **Status:** re-verified 2026-10-18 (fixes in 0.1.7, released and deployed 2026-10-18; signature verified, rollout succeeded)
@@ -65,6 +65,8 @@ the key-rotation runbook (F14) and a release that runs full CI and scans the ima
   RESOLVED in 0.1.7.
 
 The 2026-10-18 fix wave (0.1.7, released and deployed 2026-10-18) closed F16, F17, F18, F21 and F22.
+
+The 2026-10-20 image-build change (0.1.8) moved the release off QEMU (the builder cross-compiles on the build host) and found **F23 (Low, RESOLVED)**: the published `linux/arm64` image carried the amd64 binary (a `TARGETARCH=amd64` default overrode the platform value); the cluster is amd64, so nothing deployed was affected. Totals: 23 findings — 17 RESOLVED (F1, F3, F4, F7, F8, F10–F18, F21–F23), 2 ADJUDICATED (F2, F9), 3 ACCEPTED-RISK (F5, F19, F20), 0 DEFERRED, 1 Positive (F6).
 
 The signing-key rotation has a written procedure but has not been rehearsed; that stays a
 pre-mainnet maintainer item (Section D).
@@ -401,6 +403,26 @@ the shape `platform-probe`'s README uses. The signing job is `publish-public` in
 `^https://github\.com/meddleware-org/${name}/\.github/workflows/docker-publish\.yml@refs/tags/v` the same day (`STRICT=0 bash bootstrap/images/verify-digests.sh`: all 16 deployed and contingency
 images, this one included, verified valid against it); the README command was re-read and is workflow-pinned. Nothing remains.
 
+### F23 — The published `linux/arm64` image carried an x86-64 binary (found 2026-10-20)
+
+**Severity:** Low   **Disposition:** RESOLVED (0.1.8, commit pending)
+**Where:** `Dockerfile` (`ARG TARGETARCH=amd64`, the `go build` line); `.github/workflows/docker-publish.yml` (QEMU)
+**Issue:** the builder declared `ARG TARGETOS=linux` and `ARG TARGETARCH=amd64` and compiled with
+`GOARCH=${TARGETARCH}`. The default overrode the platform value BuildKit would have supplied, so the arm64 half of the
+multi-arch release (built under QEMU) compiled `GOARCH=amd64` too. Found 2026-10-20 while moving the build off QEMU:
+the `linux/arm64` image of the published 0.1.7 (`sha256:28e73383…8124`) holds `/token-service` with the same SHA-256 as the
+amd64 image (`f41cbae0…`, ELF x86-64).
+**Impact:** the `linux/arm64` image would fail with an exec format error on an arm64 node. The cluster is amd64, so
+nothing deployed was affected; the signature, SBOM and scan all verified, because none of them runs the binary.
+**Remediation / evidence:** 0.1.8: the builder is `FROM --platform=$BUILDPLATFORM` and cross-compiles; `TARGETOS` and
+`TARGETARCH` have no default and the `RUN` aborts if either is empty; a build step asserts with `go version -m`
+(reads the binary without running it) that its `GOARCH` equals `${TARGETARCH}`, so a mismatched architecture fails the
+build on every platform (checked by hard-coding `GOARCH=amd64` and building `linux/arm64`: `is not built for arm64`);
+`setup-qemu-action` is removed from the release. Proof (rootless podman, no binfmt handler registered, so emulation was
+impossible): the amd64 image built from the 0.1.7 sources with `VERSION=v0.1.7` is byte-identical to the published
+amd64 image (every file); the arm64 image holds an ELF aarch64 binary (`3272d30e…`; `go version -m`: `GOARCH=arm64`,
+`GOOS=linux`, `CGO_ENABLED=0`, `-trimpath=true`) and the rest of its tree equals the published one.
+
 ## Section A — Invariant verification matrix
 
 | # | Invariant | Enforced at | Proven by | Status |
@@ -438,6 +460,7 @@ images, this one included, verified valid against it); the README command was re
 | IMG | Build context | HOLDS — `.env*` and `.git` excluded (F21) |
 | IMG | Reproducible build stage | HOLDS — `go mod download` from `go.mod`/`go.sum`; no installers; only the binary and CA bundle reach the runtime stage |
 | IMG | No secrets in layers | HOLDS — build args are OCI label strings |
+| IMG | Build host and emulation | HOLDS (0.1.8, F23) — the builder stage is `FROM --platform=$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH` (no default for either; the `RUN` aborts if one is empty; a `go version -m` step asserts the binary's `GOARCH` equals the target); `docker-publish.yml` has no `docker/setup-qemu-action` step, so no privileged binfmt step runs in the release; rootless podman build of both platforms with no binfmt handler: the amd64 image equals the published 0.1.7 in every file, the arm64 image holds an ELF aarch64 binary |
 | IMG | Runtime user & filesystem | HOLDS — `USER 65534:65534`; pod: `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, capabilities dropped, `RuntimeDefault` seccomp, `automountServiceAccountToken: false` |
 | IMG | Runtime configuration | HOLDS — the image sets only `PORT`; the manifest sets `TOKEN_*`, `HYDRA_TOKEN_URL`, `KETO_READ_URL`, `RSA_PRIVATE_KEY_PATH`, `LOG_LEVEL` |
 | IMG | Health & resources | HOLDS — readiness and liveness on `/healthz`; requests 20m/32Mi, limits 200m/128Mi |
@@ -578,6 +601,7 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 
 - [ ] key rotation with overlap rehearsed against the live registry — maintainer item (`docs/runbooks/key-rotation.md` exists, F14)
 - [ ] registry credential inventory (`QUAY_TOKEN`, `DOCKERHUB_TOKEN`, `PRIVATE_REGISTRY_*`: scope, holder, rotation date) — maintainer item, `OPERATOR_TASKS.md` "Image registry credentials"
+- [x] each published platform's image holds that platform's binary, and the release builds without emulation — F23 (0.1.8: `FROM --platform=$BUILDPLATFORM`, no `TARGETARCH` default, the `go version -m` build step; commit pending)
 - [x] token endpoint rate-limited (Cloudflare rule and nginx per IP); SIGTERM drains in-flight requests; health endpoint reveals nothing sensitive
 - [x] signature, SBOM attestation and provenance on every pushed public image, no `continue-on-error` (the self-hosted mirror is listed as best-effort)
 - [ ] external review of the issuing path — mainnet/maintainer item
@@ -680,3 +704,4 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 - 2026-10-19 — dependency-bot status checked (read-only): `.github/dependabot.yml` carries the `ignore` rules and the repository has no open Dependabot pull requests (`gh pr list`, 2026-10-19). Versions, findings and gates were not re-examined in this pass.
   - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
   - `docker-publish.yml`: the private rebuild jobs are replaced by one `mirror-private` job that copies the published quay.io image (and its cosign artifacts) to the self-hosted registry by digest and fails unless the digest and the signature match (build once, promote by digest; committed locally, not yet released; the `PRIVATE_REGISTRY_*` credentials are still unset).
+- 2026-10-20 — image build moved off QEMU in 0.1.8 (commit pending): the builder stage is `FROM --platform=$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH` (no default for either; the `RUN` aborts if one is empty; a `go version -m` step asserts the binary's `GOARCH` equals the target); `docker-publish.yml` has no `docker/setup-qemu-action` step, so no privileged binfmt step runs in the release. Proof with rootless podman (builder pinned by digest, no binfmt handler registered): the amd64 image built from the 0.1.7 sources equals the published 0.1.7 in every file; the arm64 image differs by design (F23). New: F23 RESOLVED (the published arm64 image held an x86-64 binary; the cluster is amd64, so nothing deployed was affected). Checks: `go vet`, `go test -race` on go1.26.9, `scripts/check-image-notices.sh` with podman where the repo has it. No other disposition changed.
