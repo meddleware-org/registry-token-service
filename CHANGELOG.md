@@ -5,6 +5,12 @@ All notable changes to registry-token-service are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-10-22
+
+### Security
+
+- Go toolchain 1.26.10 (CVE-2026-111943 / GO-2026-6809: crypto/x509 accepted paths through untrusted intermediates; Trivy flags the 1.26.9 standard library in the published binary). Builder image digest updated.
+
 ## [0.1.8] - 2026-10-20
 
 ### Changed
