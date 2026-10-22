@@ -66,6 +66,8 @@ the key-rotation runbook (F14) and a release that runs full CI and scans the ima
 
 The 2026-10-18 fix wave (0.1.7, released and deployed 2026-10-18) closed F16, F17, F18, F21 and F22.
 
+The 2026-10-22 toolchain bump (0.1.9, `v0.1.9` = `c23dfde`) found **F24 (Low, RESOLVED)**: Trivy flags the Go 1.26.9 standard library (CVE-2026-111943, fixed in 1.26.10) in the published binary although govulncheck finds it unreachable; resolved by moving to Go 1.26.10.
+
 The 2026-10-20 image-build change (0.1.8) moved the release off QEMU (the builder cross-compiles on the build host) and found **F23 (Low, RESOLVED)**: the published `linux/arm64` image carried the amd64 binary (a `TARGETARCH=amd64` default overrode the platform value); the cluster is amd64, so nothing deployed was affected. Totals: 23 findings — 17 RESOLVED (F1, F3, F4, F7, F8, F10–F18, F21–F23), 2 ADJUDICATED (F2, F9), 3 ACCEPTED-RISK (F5, F19, F20), 0 DEFERRED, 1 Positive (F6).
 
 The signing-key rotation has a written procedure but has not been rehearsed; that stays a
@@ -423,6 +425,19 @@ impossible): the amd64 image built from the 0.1.7 sources with `VERSION=v0.1.7` 
 amd64 image (every file); the arm64 image holds an ELF aarch64 binary (`3272d30e…`; `go version -m`: `GOARCH=arm64`,
 `GOOS=linux`, `CGO_ENABLED=0`, `-trimpath=true`) and the rest of its tree equals the published one.
 
+### F24 — Trivy flags the Go 1.26.9 standard library (CVE-2026-111943) in the published binary, though govulncheck finds it unreachable (found 2026-10-22)
+
+**Severity:** Low   **Disposition:** RESOLVED (0.1.9, commit `c23dfde`, 2026-10-22)
+**Where:** `go.mod` (`toolchain`), `Dockerfile` (builder `golang:<patch>-bookworm@sha256:…`), `docker-publish.yml` (image scan before signing).
+
+**Issue:** CVE-2026-111943 / GO-2026-6809 (`crypto/x509` accepted certificate paths through untrusted intermediates) is fixed in Go 1.26.10. The static binary embeds the 1.26.9 standard library, so Trivy's image scan reports a fixable HIGH finding in the published binary, while `govulncheck`
+(code-level reachability) finds no path to the vulnerable function in this service.
+
+**Impact:** none for the service's behaviour, but the scan-before-sign gate refuses to sign an image with a fixable HIGH, so the release would have been blocked.
+
+**Remediation / evidence:** 0.1.9 bumps the toolchain to Go 1.26.10 (`go.mod`, the Dockerfile builder digest; the Dockerfile fails if the builder's Go differs from the `go.mod` toolchain). The gate was not weakened and no ignore entry was added. Proof: the `Publish (Docker)` run 39764355765 for `v0.1.9` succeeded, including the scan before signing (read with `gh`, 2026-10-22); `config/images.yaml` pins `0.1.9@sha256:8f09128b…0c47`.
+Related: registry-auth-proxy F24 (the same advisory, reachable there), static-server F13.
+
 ## Section A — Invariant verification matrix
 
 | # | Invariant | Enforced at | Proven by | Status |
@@ -706,3 +721,4 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
   - `docker-publish.yml`: the private rebuild jobs are replaced by one `mirror-private` job that copies the published quay.io image (and its cosign artifacts) to the self-hosted registry by digest and fails unless the digest and the signature match (build once, promote by digest; committed locally, not yet released; the `PRIVATE_REGISTRY_*` credentials are still unset).
 - 2026-10-20 — image build moved off QEMU in 0.1.8 (commit 8c841f1): the builder stage is `FROM --platform=$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH` (no default for either; the `RUN` aborts if one is empty; a `go version -m` step asserts the binary's `GOARCH` equals the target); `docker-publish.yml` has no `docker/setup-qemu-action` step, so no privileged binfmt step runs in the release. Proof with rootless podman (builder pinned by digest, no binfmt handler registered): the amd64 image built from the 0.1.7 sources equals the published 0.1.7 in every file; the arm64 image differs by design (F23). New: F23 RESOLVED (the published arm64 image held an x86-64 binary; the cluster is amd64, so nothing deployed was affected). Checks: `go vet`, `go test -race` on go1.26.9, `scripts/check-image-notices.sh` with podman where the repo has it. No other disposition changed.
 - 2026-10-22 — cross-reference only (no change to this service): the `registry-browser` Hydra client registration drops `registry:push` (registry-auth-proxy F21/S9/OQ7, platform manifest authored, applied: see that audit's log). The token service requests no client scope when it asks Hydra for a token (OQ6 above), so the narrower registration needs no code change here; B.AUTH-2 updated.
+- 2026-10-22 (audit close-out) — F24 added (RESOLVED): Trivy flags the Go 1.26.9 standard library (CVE-2026-111943, HIGH, fixed in 1.26.10) in the published binary, although govulncheck found it unreachable; the scan-before-sign gate would block the release. Resolved by the Go 1.26.10 bump in 0.1.9 (`v0.1.9` = `c23dfde`, `Publish (Docker)` run 39764355765 succeeded; pinned in `config/images.yaml`). Counts: 24 findings — 18 RESOLVED, 2 ADJUDICATED, 3 ACCEPTED-RISK, 0 DEFERRED, 1 Positive (F23 and F24 added since 2026-10-18). Not re-run here: the Go tests and the scans.
