@@ -3,7 +3,7 @@
 **Classification:** Internal security review
 **Project:** `repos/registry-token-service` — CNCF Distribution token service for `registry.meddleware.co.uk` (Go)
 **Project type:** Go service + container image + token issuer (authorization decision point)
-**Template:** AUDIT_TEMPLATE.md (2026-10-08) + AUDIT_TEMPLATE_GO.md (2026-10-08) + AUDIT_TEMPLATE_IMG.md (2026-10-08) + AUDIT_TEMPLATE_AUTH.md (2026-10-08)
+**Template:** AUDIT_TEMPLATE.md (2026-11-01) + AUDIT_TEMPLATE_GO.md (2026-10-08) + AUDIT_TEMPLATE_IMG.md (2026-10-08) + AUDIT_TEMPLATE_AUTH.md (2026-10-08)
 **Go:** `go 1.26.6`, `toolchain go1.26.9` in `go.mod`; CI uses `go-version-file: go.mod`; builder `golang:1.26.9-bookworm` (digest-pinned, checked against the `go.mod` toolchain in the Dockerfile)
 **Modules:** `golang-jwt/jwt/v5` v5.3.1 (RS256 signing), `google/uuid` v1.6.0 (`jti`); everything else is stdlib
 **Entry points:** `cmd/server` (listens on `:8080`: `GET /token`, `GET /healthz`; `-healthcheck` flag for the container `HEALTHCHECK`)
