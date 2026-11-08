@@ -619,7 +619,7 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 - [x] each published platform's image holds that platform's binary, and the release builds without emulation — F23 (0.1.8: `FROM --platform=$BUILDPLATFORM`, no `TARGETARCH` default, the `go version -m` build step; commit 8c841f1)
 - [x] token endpoint rate-limited (Cloudflare rule and nginx per IP); SIGTERM drains in-flight requests; health endpoint reveals nothing sensitive
 - [x] signature, SBOM attestation and provenance on every pushed public image, no `continue-on-error` (the self-hosted mirror is listed as best-effort)
-- [ ] external review of the issuing path — mainnet/maintainer item
+- [ ] external review (ADR-0009 gate G4: not a launch gate; covered by redeploy and the audit pass) of the issuing path — mainnet/maintainer item
 - [x] no chain dependency; no additional gate
 
 ## Cross-project themes
