@@ -3,7 +3,7 @@
 # To bump: docker buildx imagetools inspect golang:<go.mod toolchain>-bookworm --format '{{.Manifest.Digest}}'
 # The builder runs on the BUILD host's architecture and cross-compiles (pure Go, CGO off), so no arm64 step runs
 # under emulation. Nothing the builder executes is target-specific.
-FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:5de7c99eb78ca5e515a4c340235d0955ec5964a5071c492c15503d7c267da473 AS builder
 
 ARG VERSION=dev
 # Set by BuildKit/podman from --platform; a plain builder that leaves them empty fails the guard below.
