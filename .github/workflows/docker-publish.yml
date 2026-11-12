@@ -25,6 +25,8 @@ on:
       - "v*"
 
 env:
+  DO_NOT_TRACK: "1"
+  GOTELEMETRY: "off"
   IMAGE: registry-token-service
 
 permissions:
