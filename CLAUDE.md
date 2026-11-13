@@ -32,9 +32,70 @@ unauthorized registry access.
    `pull` in Keto receives `["pull"]` in the token — it does not get an error and it
    does not get `push`.
 
+## Auth flow
+
+The service implements the [Distribution registry token auth specification](https://distribution.github.io/distribution/spec/auth/token/).
+The registry answers an unauthenticated push or pull with `401 WWW-Authenticate: Bearer realm=".../token", service=...`.
+
+```text
+Docker: GET /token?service=...&scope=repository:myorg/image:push   (Authorization: Basic client_id:client_secret)
+Token service:
+  1. validate client_id:client_secret via Hydra /oauth2/token (client_credentials)
+  2. check the per-action Keto permission (Registry namespace, repo name, relation)
+  3. sign an RS256 JWT with the allowed access list (iss, sub, aud, access)
+Docker: retry with the Bearer JWT; the registry verifies the signature with the public key and allows or denies.
+```
+
+Endpoints: `GET /token` (HTTP Basic, `scope` query parameter) and `GET /healthz` (liveness/readiness).
+
+## Keto namespace
+
+Permissions are checked against the `Registry` namespace. Relations: `pushers` (may push), `pullers` (may pull), `admins` (may
+delete), `listers` (catalog listing, on the fixed `catalog` object). `pushers` and `pullers` are checked independently (a push grant
+does not imply pull). Subject IDs are Hydra `client_id` values.
+
+Two-tier object check (`checkRepoOrOrgPermission` in `cmd/server/main.go`): for a `repository:<name>:<action>` scope the service
+checks the specific repo object first (e.g. `meddleware-org/static-server`), then the org object, the segment before the first `/`
+(e.g. `meddleware-org`). An org-level grant covers every current and future repo in the org (dynamic mirroring); a repo-level grant
+scopes an identity to one repo.
+
+A client with no Keto permissions for a repo receives a token with an empty `access` list for that repo (not an error).
+
+## Layout, configuration and commands
+
+```text
+cmd/server/main.go          HTTP server, routing, token handler logic
+internal/config/config.go   environment configuration + RSA key loading (key must be at least 4096-bit)
+internal/hydra/client.go    Hydra client_credentials validation
+internal/keto/client.go     Keto relation-tuple permission check
+internal/token/issuer.go    RS256 JWT signing
+internal/token/scope.go     parse/filter Distribution scope strings (all repeated `scope` parameters, bounded as a whole)
+scripts/                    third-party-licenses.sh (image notices), check-image-notices.sh (CI)
+```
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `PORT` | no | `8080` | HTTP listen port |
+| `TOKEN_ISSUER` | yes | none | `iss` claim (e.g. `https://token.meddleware.co.uk`) |
+| `TOKEN_SERVICE` | yes | none | `aud` claim + registry service name |
+| `TOKEN_TTL` | no | `300` | Token lifetime in seconds (bounded; out-of-range values are refused at startup) |
+| `RSA_PRIVATE_KEY_PATH` | no | `/etc/token-service/signing.key` | PEM RSA private key |
+| `HYDRA_TOKEN_URL` | yes | none | Hydra public token endpoint (`POST /oauth2/token`) |
+| `KETO_READ_URL` | yes | none | Keto read API base URL |
+| `LOG_LEVEL` | no | `info` | `debug\|info\|warn\|error` |
+
+```bash
+go build -o token-service ./cmd/server
+docker build --build-arg VERSION=v0.1.0 -t quay.io/meddleware-org/registry-token-service:v0.1.0 .
+# test keys and a token request (needs Hydra + Keto up)
+openssl genrsa -out signing.key 4096 && openssl rsa -in signing.key -pubout -out signing.pub.pem
+curl -su registry-ci-push:$SECRET \
+  "http://localhost:8080/token?service=registry.meddleware.co.uk&scope=repository:meddleware-org/static-server:push"
+```
+
 ## Code style
 
-- Match the pattern in `images/static-server/main.go`: no global state, structured
+- Match the sibling `registry-auth-proxy`: no global state, structured
   logging via `log/slog`, graceful shutdown, `envOr` for optional config.
 - Error paths return immediately; do not swallow errors silently.
 - Keep `cmd/server/main.go` thin — routing and handler wiring only. Business logic
