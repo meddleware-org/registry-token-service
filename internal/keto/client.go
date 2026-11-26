@@ -1,3 +1,5 @@
+// client.go asks Keto whether a client has a relation on an object, and reports only allowed or not.
+
 // Package keto provides a minimal client for the Ory Keto v0.14 REST read API.
 package keto
 
@@ -37,6 +39,7 @@ type checkResponse struct {
 func (c *Client) CheckPermission(ctx context.Context, namespace, object, relation, subjectID string) (bool, error) {
 	endpoint := c.baseURL + "/relation-tuples/check"
 
+	// Keto's read API takes the tuple as query parameters on GET /relation-tuples/check.
 	q := url.Values{}
 	q.Set("namespace", namespace)
 	q.Set("object", object)
@@ -47,6 +50,7 @@ func (c *Client) CheckPermission(ctx context.Context, namespace, object, relatio
 	if err != nil {
 		return false, fmt.Errorf("build keto request: %w", err)
 	}
+	// The check answers JSON; ask for it explicitly.
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -55,6 +59,7 @@ func (c *Client) CheckPermission(ctx context.Context, namespace, object, relatio
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// The answer is capped at 1 KiB: it is one small JSON object.
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if err != nil {
 		return false, fmt.Errorf("read keto response: %w", err)
@@ -64,6 +69,7 @@ func (c *Client) CheckPermission(ctx context.Context, namespace, object, relatio
 	if resp.StatusCode == http.StatusForbidden {
 		return false, nil
 	}
+	// Any other status is a failure of Keto itself, so the caller must fail closed (503), not treat the client as denied.
 	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("keto returned HTTP %d: %s", resp.StatusCode, raw)
 	}

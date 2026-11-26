@@ -1,16 +1,23 @@
+# Dependabot: weekly, grouped update pull requests for the Docker base image, the Go module and the GitHub Actions (the fleet policy, D41 and D52, in the workspace's docs/audit/LENS_GROUNDING_LOG.md).
+# Minor and patch updates are merged when CI is green.
 version: 2
 updates:
+  # The Dockerfile's builder image and its digest pin.
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    # Five open at a time keeps the queue reviewable.
     open-pull-requests-limit: 5
     ignore:
+      # The Go toolchain is pinned by go.mod's toolchain line and moved deliberately, with the builder image, never by a bot's minor or major (D52).
       - dependency-name: "golang"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
     groups:
+      # One pull request moves every image pin together.
       docker:
         patterns: ['*']
+  # The module's two direct dependencies (golang-jwt/jwt and google/uuid); minor and patch updates only arrive as one pull request.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -19,6 +26,7 @@ updates:
     groups:
       gomod-minor-patch:
         update-types: [minor, patch]
+  # Actions are pinned by full commit SHA (D12); one pull request moves every pin together.
   - package-ecosystem: github-actions
     directory: /
     schedule:

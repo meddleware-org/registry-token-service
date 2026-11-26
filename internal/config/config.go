@@ -124,6 +124,7 @@ func Load() (*Config, error) {
 	}, nil
 }
 
+// envOr returns the environment variable key, or fallback when it is unset or empty.
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -133,20 +134,25 @@ func envOr(key, fallback string) string {
 
 // validateHTTPURL rejects a value that is not a well-formed http(s) URL with a host. It does not
 // require https: Hydra and Keto are reached over in-cluster http (encryption is a platform concern).
+//
+// The errors name the variable and what is wrong, never the value (and not its scheme either, because a mistyped
+// "user:password@host" parses with "user" as the scheme): a configured URL can carry a user name, password or key,
+// and the message reaches the container log (CONF lens).
 func validateHTTPURL(name, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("invalid %s %q: %w", name, raw, err)
+		return fmt.Errorf("invalid %s: not a valid URL", name)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("%s must be an http(s) URL, got scheme %q in %q", name, u.Scheme, raw)
+		return fmt.Errorf("%s must be an http(s) URL", name)
 	}
 	if u.Host == "" {
-		return fmt.Errorf("%s must include a host: %q", name, raw)
+		return fmt.Errorf("%s must include a host", name)
 	}
 	return nil
 }
 
+// loadPrivateKey reads the PEM file at path and returns the RSA key, accepting PKCS#1 and PKCS#8; any other block type is refused.
 func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

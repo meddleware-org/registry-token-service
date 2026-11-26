@@ -1,3 +1,5 @@
+// Tests for scope parsing: the scope grammar, the action filter, the repository-name grammar and the bounds on a request.
+
 package token
 
 import (
@@ -6,12 +8,15 @@ import (
 	"testing"
 )
 
+// TestParseScope checks the scope string grammar: type, name and comma-separated actions, and the malformed shapes that are refused.
 func TestParseScope(t *testing.T) {
+	// Each row: a name, the raw scope text and the items it must parse to.
 	tests := []struct {
 		name string
 		raw  string
 		want []ScopeItem
 	}{
+		// Empty input is no scope at all.
 		{"empty", "", nil},
 		{
 			"single repository with two actions",
@@ -26,6 +31,7 @@ func TestParseScope(t *testing.T) {
 				{Type: "registry", Name: "catalog", Actions: []string{"*"}},
 			},
 		},
+		// Malformed entries are dropped, not repaired: a scope is only ever narrowed.
 		{"malformed missing action segment dropped", "repository:a/b", nil},
 		{"empty actions dropped", "repository:a/b:", nil},
 		{"empty action tokens filtered", "repository:a/b:,pull,", []ScopeItem{{Type: "repository", Name: "a/b", Actions: []string{"pull"}}}},
@@ -39,9 +45,12 @@ func TestParseScope(t *testing.T) {
 	}
 }
 
+// TestFilterActions checks only known actions survive, in order and without duplicates.
 func TestFilterActions(t *testing.T) {
+	// One requested item, filtered against different allowed sets below.
 	item := ScopeItem{Type: "repository", Name: "a/b", Actions: []string{"push", "pull"}}
 
+	// The result is the actions that are both requested and allowed.
 	t.Run("intersects requested with allowed", func(t *testing.T) {
 		got := item.FilterActions([]string{"pull"})
 		if got == nil || !reflect.DeepEqual(got.Actions, []string{"pull"}) {
@@ -49,18 +58,21 @@ func TestFilterActions(t *testing.T) {
 		}
 	})
 
+	// Nothing in common means no scope at all, not an item with no actions.
 	t.Run("empty intersection returns nil (no scope granted)", func(t *testing.T) {
 		if got := item.FilterActions([]string{"delete"}); got != nil {
 			t.Fatalf("FilterActions(delete) = %+v, want nil", got)
 		}
 	})
 
+	// No allowed actions is the same as an empty intersection.
 	t.Run("nil allowed returns nil", func(t *testing.T) {
 		if got := item.FilterActions(nil); got != nil {
 			t.Fatalf("FilterActions(nil) = %+v, want nil", got)
 		}
 	})
 
+	// Filtering changes only the actions.
 	t.Run("preserves type and name", func(t *testing.T) {
 		got := item.FilterActions([]string{"push", "pull"})
 		if got == nil || got.Type != "repository" || got.Name != "a/b" {
@@ -69,6 +81,7 @@ func TestFilterActions(t *testing.T) {
 	})
 }
 
+// TestValidRepositoryName checks the repository-name grammar, including the shapes that would be dangerous in a permission query.
 func TestValidRepositoryName(t *testing.T) {
 	valid := []string{"app", "org/app", "meddleware-org/registry-auth-proxy", "a.b/c_d/e__f/g--h", "org/a1", strings.Repeat("a", MaxNameLength)}
 	for _, n := range valid {
@@ -87,6 +100,7 @@ func TestValidRepositoryName(t *testing.T) {
 	}
 }
 
+// TestParseScopeParams checks the repeated scope parameters are parsed together under the size and count bounds.
 func TestParseScopeParams(t *testing.T) {
 	t.Run("every repeated parameter is evaluated, in order", func(t *testing.T) {
 		got, err := ParseScopeParams([]string{"repository:a/one:push,pull", "repository:b/two:pull", "registry:catalog:*"})

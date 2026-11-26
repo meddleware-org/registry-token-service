@@ -5,6 +5,17 @@ All notable changes to registry-token-service are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A rejected `HYDRA_TOKEN_URL` or `KETO_READ_URL` is reported by its variable name only. The start-up error used to repeat the value (and the parse error repeated it again), so a URL carrying a user name,
+  password or key put it in the container log.
+
+### Changed
+
+- Line-level comments on every file; `CONTRIBUTING.md` and a `.golangci.yml` with revive's documentation rules added.
+
 ## [0.1.11] - 2026-11-19
 
 ### Security

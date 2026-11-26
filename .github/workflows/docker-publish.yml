@@ -27,6 +27,7 @@ on:
 env:
   DO_NOT_TRACK: "1"
   GOTELEMETRY: "off"
+  # The image name shared by every step (registries add their own namespace).
   IMAGE: registry-token-service
 
 permissions:
@@ -42,6 +43,7 @@ jobs:
   publish-public:
     name: Publish (quay.io + Docker Hub)
     runs-on: ubuntu-latest
+    # Publishing waits for the full CI run on the tagged commit.
     needs: verify
     outputs:
       digest: ${{ steps.build.outputs.digest }}
@@ -50,11 +52,14 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # The tagged commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Buildx builds both architectures in one run.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # Registry logins use repository secrets; nothing here prints them.
       - name: Log in to quay.io
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
@@ -62,6 +67,7 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_TOKEN }}
 
+      # The second public registry, with its own credentials.
       - name: Log in to Docker Hub
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
@@ -69,6 +75,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # The same semver tags as the public registries, so every registry returns one digest for one tag.
       - name: Compute tags and labels
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -82,6 +89,7 @@ jobs:
           flavor: |
             latest=auto
 
+      # One multi-architecture build, pushed with provenance; the digest it returns is what every later step signs and scans.
       - name: Build and push (multi-arch, SBOM + provenance)
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -105,6 +113,7 @@ jobs:
             DOCUMENTATION_URL=${{ vars.DOCUMENTATION_URL || 'https://github.com/meddleware-org/registry-token-service#readme' }}
             IMAGE_URL=${{ vars.IMAGE_URL || 'https://quay.io/meddleware-org/registry-token-service' }}
 
+      # Scan what was pushed, by digest, before it is signed: a finding stops the release before any signature or attestation exists.
       - name: Scan the published image (fail on fixable CRITICAL/HIGH)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -114,9 +123,11 @@ jobs:
           ignore-unfixed: true
           version: v0.74.0
 
+      # Cosign signs and attests below; it is installed once per job.
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # Keyless signatures over the exact digest, so a tag moving later cannot change what was signed.
       - name: Sign images (keyless)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -135,6 +146,7 @@ jobs:
           output-file: sbom.spdx.json
           upload-artifact: false
 
+      # Sign the SBOM against the same digest.
       - name: Attest SBOM (keyless)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -144,6 +156,7 @@ jobs:
           cosign attest --yes --type spdxjson --predicate sbom.spdx.json "quay.io/${QUAY_NS}/${IMAGE}@${DIGEST}"
           cosign attest --yes --type spdxjson --predicate sbom.spdx.json "docker.io/${DOCKERHUB_NS}/${IMAGE}@${DIGEST}"
 
+      # GitHub-native provenance, pushed to the registry beside the image.
       - name: Attest build provenance (quay.io)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -151,6 +164,7 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      # The same provenance for the Docker Hub copy.
       - name: Attest build provenance (Docker Hub)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -158,6 +172,7 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      # Job summary: the digest and the command anyone can run to verify the signature.
       - name: Summary
         run: |
           echo "Published & signed @ digest: ${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
@@ -170,6 +185,7 @@ jobs:
   mirror-private:
     name: Mirror (self-hosted registry)
     runs-on: ubuntu-latest
+    # The mirror copies what the public job published, so it runs only after it.
     needs: [publish-public]
     continue-on-error: true
     permissions:
@@ -178,11 +194,13 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # oras copies the OCI referrers (signatures, attestations) that cosign copy does not.
       - name: Install oras
         uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
         with:
           version: 1.3.4
 
+      # The self-hosted registry is optional: this job may fail until its credentials exist.
       - name: Log in to self-hosted registry
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
@@ -201,6 +219,7 @@ jobs:
           flavor: |
             latest=auto
 
+      # Copy by digest (never rebuild), compare the digest and verify the signature on the copy.
       - name: Copy the published image (same digest) and verify
         env:
           DIGEST: ${{ needs.publish-public.outputs.digest }}

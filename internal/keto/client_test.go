@@ -1,3 +1,5 @@
+// Tests for the Keto client: allowed, denied and failing answers against an httptest server, and the query it sends.
+
 package keto
 
 import (
@@ -10,6 +12,7 @@ import (
 // TestCheckPermission pins the status mapping: 200 follows "allowed"; 403 is a denial;
 // anything else, or a malformed body, is an error (the handler answers 503, never allows).
 func TestCheckPermission(t *testing.T) {
+	// Each row: the status and body the fake Keto sends, and whether the check must be allowed, denied or an error.
 	cases := []struct {
 		name    string
 		status  int
@@ -17,6 +20,7 @@ func TestCheckPermission(t *testing.T) {
 		allowed bool
 		wantErr bool
 	}{
+		// A 200 follows the "allowed" flag; a 403 is a denial, not a failure; every other status or a malformed body is an error.
 		{"allowed", 200, `{"allowed":true}`, true, false},
 		{"denied in 200", 200, `{"allowed":false}`, false, false},
 		{"denied 403", 403, `{"allowed":false}`, false, false},

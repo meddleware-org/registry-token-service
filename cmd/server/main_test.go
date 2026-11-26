@@ -1,3 +1,5 @@
+// Tests for the service's HTTP layer: the organisation fallback, the fail-closed paths when Hydra or Keto is down, and the service check, against httptest doubles of both.
+
 package main
 
 import (
@@ -11,6 +13,7 @@ import (
 	"github.com/meddleware-org/registry-token-service/internal/keto"
 )
 
+// TestOrgOf checks the organisation is the repository path's first segment, and empty when there is none.
 func TestOrgOf(t *testing.T) {
 	tests := []struct {
 		repo string
@@ -54,6 +57,7 @@ func fakeKeto(t *testing.T, granted map[string]bool, calls *int) *keto.Client {
 	return keto.NewClient(srv.URL)
 }
 
+// boolString renders a bool as the JSON literal Keto answers with.
 func boolString(b bool) string {
 	if b {
 		return "true"
@@ -61,7 +65,9 @@ func boolString(b bool) string {
 	return "false"
 }
 
+// TestCheckRepoOrOrgPermission checks a repository-level grant wins without a second call, an organisation-level grant is the fallback, and neither means no access.
 func TestCheckRepoOrOrgPermission(t *testing.T) {
+	// A fixed client id; the fake Keto keys its grants on it.
 	const client = "registry-ci-push"
 
 	t.Run("repo-level grant wins without hitting org fallback", func(t *testing.T) {
@@ -142,12 +148,14 @@ func fakeKetoError(t *testing.T) *keto.Client {
 	return keto.NewClient(srv.URL)
 }
 
+// tokenRequest builds an authenticated GET /token request for a service and scope.
 func tokenRequest(service, scope string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, "/token?service="+url.QueryEscape(service)+"&scope="+url.QueryEscape(scope), nil)
 	req.SetBasicAuth("registry-ci", "secret")
 	return req
 }
 
+// TestHandleToken_ServiceMismatch checks a request naming another service is refused with 400 before any credential is checked.
 func TestHandleToken_ServiceMismatch(t *testing.T) {
 	h := handleToken(fakeHydra(t, http.StatusOK), fakeKeto(t, nil, nil), nil, "registry.meddleware.co.uk")
 	rec := httptest.NewRecorder()
@@ -157,6 +165,7 @@ func TestHandleToken_ServiceMismatch(t *testing.T) {
 	}
 }
 
+// TestHandleToken_HydraUnavailableReturns503 checks a Hydra failure fails closed: 503, never a token.
 func TestHandleToken_HydraUnavailableReturns503(t *testing.T) {
 	h := handleToken(fakeHydra(t, http.StatusInternalServerError), fakeKeto(t, nil, nil), nil, "reg")
 	rec := httptest.NewRecorder()
@@ -166,6 +175,7 @@ func TestHandleToken_HydraUnavailableReturns503(t *testing.T) {
 	}
 }
 
+// TestHandleToken_KetoUnavailableReturns503 checks a Keto failure fails closed: 503, never a token.
 func TestHandleToken_KetoUnavailableReturns503(t *testing.T) {
 	h := handleToken(fakeHydra(t, http.StatusOK), fakeKetoError(t), nil, "reg")
 	rec := httptest.NewRecorder()

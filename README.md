@@ -64,11 +64,13 @@ Point the Distribution registry's `auth.token` block at this service
 | `PORT` | no | `8080` | HTTP listen port |
 | `TOKEN_ISSUER` | **yes** | — | `iss` claim (e.g. `https://token.example.com`) |
 | `TOKEN_SERVICE` | **yes** | — | `aud` claim + registry service name |
-| `TOKEN_TTL` | no | `300` | Token lifetime in seconds |
+| `TOKEN_TTL` | no | `300` | Token lifetime in seconds (an integer in the allowed range; out-of-range values are refused at start-up) |
 | `RSA_PRIVATE_KEY_PATH` | no | `/etc/token-service/signing.key` | PEM RSA private key (≥ 4096-bit; the service refuses to start otherwise) |
-| `HYDRA_TOKEN_URL` | **yes** | — | Hydra public token endpoint (`POST /oauth2/token`) |
-| `KETO_READ_URL` | **yes** | — | Keto read API base URL |
+| `HYDRA_TOKEN_URL` | **yes** | — | Hydra public token endpoint (`POST /oauth2/token`); `http` or `https` with a host |
+| `KETO_READ_URL` | **yes** | — | Keto read API base URL; `http` or `https` with a host |
 | `LOG_LEVEL` | no | `info` | `debug \| info \| warn \| error` |
+
+A rejected URL is reported by its variable name only, never its value: a configured URL can carry a credential, and the message reaches the container log.
 
 ## Endpoints
 
@@ -142,7 +144,7 @@ fails if they are empty (the legacy builder does not set them).
 
 ## Contributing / development
 
-See [AGENTS.md](AGENTS.md) for the package layout, auth-flow detail, and testing
-recipes, and [CLAUDE.md](CLAUDE.md) for the architectural invariants. CI runs
-`golangci-lint`, `go vet`, race tests, `govulncheck`, and a Trivy filesystem scan;
-all must pass before a `v*` tag triggers a signed multi-registry release.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build, test and propose a change, and
+[CLAUDE.md](CLAUDE.md) for the package layout, auth-flow detail, testing recipes and the architectural invariants. CI runs
+`golangci-lint`, `go vet`, race tests, `govulncheck`, a Trivy filesystem scan and the image
+notices check; all must pass before a `v*` tag triggers a signed multi-registry release.

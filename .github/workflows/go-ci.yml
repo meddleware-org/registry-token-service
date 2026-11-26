@@ -18,6 +18,7 @@ on:
   workflow_call:
 
 permissions:
+  # Read-only token: CI only checks out and reads the repository.
   contents: read
 
 env:
@@ -25,21 +26,26 @@ env:
   GOTELEMETRY: "off"
 
 jobs:
+  # Lint: golangci-lint on the module with the pinned version, so a new rule never fails a release unannounced.
   lint:
     name: Lint (golangci-lint)
     runs-on: ubuntu-latest
     steps:
+      # The commit under test.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The toolchain go.mod names, with the module cache.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
+      # Lint with the repository's golangci-lint configuration and a five minute ceiling.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.13.0
           args: --timeout=5m
 
+  # Test: go vet, then the whole suite under the race detector with coverage collected from the compiled test binary.
   test:
     name: Test (vet + race)
     runs-on: ubuntu-latest
@@ -49,11 +55,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Vet first: it is quick and its findings explain many test failures.
       - name: go vet
         run: go vet ./...
+      # Build the test binary once with the race detector and coverage, run it with a ceiling, then print per-function coverage.
       - name: go test (race + coverage)
         run: go test -v -race -coverprofile=coverage.out ./...
 
+  # Vulnerabilities: govulncheck reports only the advisories whose vulnerable code the binary can reach.
   vuln:
     name: Vulnerabilities (govulncheck)
     runs-on: ubuntu-latest
@@ -63,16 +72,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Install the pinned scanner and run it over every package.
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0  # pinned; the module checksum database verifies it
           govulncheck ./...
 
+  # Scan: Trivy over the repository files for known-vulnerable dependencies, misconfiguration and committed secrets.
   scan:
     name: Filesystem scan (Trivy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Fail on fixable critical or high findings only (ignore-unfixed), so the gate is actionable.
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -84,6 +96,7 @@ jobs:
           ignore-unfixed: true
           version: v0.74.0
 
+  # Image: builds the Dockerfile as the release does and checks that the image ships the licence notices of what it redistributes.
   image:
     name: Image builds and ships licence notices
     runs-on: ubuntu-latest

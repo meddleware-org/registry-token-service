@@ -1,3 +1,5 @@
+// client.go checks client credentials with Hydra by attempting a client_credentials grant, and reports only whether they are valid.
+
 // Package hydra provides a minimal client for validating OAuth2 client credentials
 // against Ory Hydra's token endpoint.
 package hydra
@@ -41,6 +43,7 @@ type tokenResponse struct {
 // token (credentials valid), false if Hydra rejects them.
 // Returns an error only for transport or server-side failures.
 func (c *Client) ValidateClientCredentials(ctx context.Context, clientID, clientSecret string) (bool, error) {
+	// The OAuth2 client-credentials grant: the request is a form post carrying only the grant type.
 	body := url.Values{}
 	body.Set("grant_type", "client_credentials")
 
@@ -49,6 +52,7 @@ func (c *Client) ValidateClientCredentials(ctx context.Context, clientID, client
 	if err != nil {
 		return false, fmt.Errorf("build hydra request: %w", err)
 	}
+	// The client authenticates with HTTP Basic credentials, as the grant requires; the secret is never logged.
 	req.SetBasicAuth(clientID, clientSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -59,14 +63,17 @@ func (c *Client) ValidateClientCredentials(ctx context.Context, clientID, client
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// The answer is capped at 4 KiB: a token or error response is small, so more is hostile or broken.
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return false, fmt.Errorf("read hydra response: %w", err)
 	}
 
+	// Hydra refusing the credentials is a valid answer ("not valid"), not an error.
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return false, nil
 	}
+	// Any other status is a failure of Hydra itself, so the caller must fail closed (503), not treat the client as invalid.
 	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("hydra returned HTTP %d: %s", resp.StatusCode, raw)
 	}
@@ -75,6 +82,7 @@ func (c *Client) ValidateClientCredentials(ctx context.Context, clientID, client
 	if err := json.Unmarshal(raw, &tok); err != nil {
 		return false, fmt.Errorf("decode hydra response: %w", err)
 	}
+	// An OAuth error in a 200 body also means the credentials were not accepted.
 	if tok.Error != "" {
 		return false, nil
 	}

@@ -1,3 +1,5 @@
+// issuer.go signs the registry's bearer tokens (RS256 JWTs in the Distribution token-authentication format) with the service's RSA key.
+
 package token
 
 import (
@@ -34,16 +36,27 @@ type registryClaims struct {
 	Access []AccessClaim `json:"access"`
 }
 
-// Valid implements jwt.Claims so golang-jwt can sign the struct.
+// GetExpirationTime returns the expiry as a JWT numeric date.
+// The Get methods below implement jwt.Claims so golang-jwt can sign the struct.
 func (r registryClaims) GetExpirationTime() (*jwt.NumericDate, error) {
 	return jwt.NewNumericDate(time.Unix(r.Expiry, 0)), nil
 }
+
+// GetIssuedAt returns the issued-at time as a JWT numeric date.
 func (r registryClaims) GetIssuedAt() (*jwt.NumericDate, error) {
 	return jwt.NewNumericDate(time.Unix(r.IssuedAt, 0)), nil
 }
+
+// GetNotBefore returns nil: the tokens carry no not-before claim.
 func (r registryClaims) GetNotBefore() (*jwt.NumericDate, error) { return nil, nil }
-func (r registryClaims) GetIssuer() (string, error)              { return r.Issuer, nil }
-func (r registryClaims) GetSubject() (string, error)             { return r.Subject, nil }
+
+// GetIssuer returns the issuer claim.
+func (r registryClaims) GetIssuer() (string, error) { return r.Issuer, nil }
+
+// GetSubject returns the subject claim.
+func (r registryClaims) GetSubject() (string, error) { return r.Subject, nil }
+
+// GetAudience returns the audience as a one-element list, as the jwt library's interface requires, while the claim itself is serialised as a plain string.
 func (r registryClaims) GetAudience() (jwt.ClaimStrings, error) {
 	return jwt.ClaimStrings{r.Audience}, nil
 }

@@ -4,6 +4,9 @@
 **Project:** `repos/registry-token-service` — CNCF Distribution token service for `registry.meddleware.co.uk` (Go)
 **Project type:** Go service + container image + token issuer (authorization decision point)
 **Template:** AUDIT_TEMPLATE.md (2026-11-01) + AUDIT_TEMPLATE_GO.md (2026-10-08) + AUDIT_TEMPLATE_IMG.md (2026-10-08) + AUDIT_TEMPLATE_AUTH.md (2026-10-08)
+  - **Added 2026-11-26 (Part B documentation pass):** AUDIT_TEMPLATE_DOCS.md (2026-11-20); AUDIT_TEMPLATE_RFC.md (2026-11-19), ●: HTTP, Basic authentication, JWT and JWK thumbprints, OAuth 2.0 client credentials, the Distribution token format;
+    AUDIT_TEMPLATE_IOP.md (2026-11-19), ●: the token API, the build and release dependencies; AUDIT_TEMPLATE_PRIV.md (2026-11-20), ●: the issuance log line, no stored data; AUDIT_TEMPLATE_CONF.md (2026-11-26), ●: eight environment
+    variables and one key file.
 **Go:** `go 1.26.6`, `toolchain go1.26.9` in `go.mod`; CI uses `go-version-file: go.mod`; builder `golang:1.26.9-bookworm` (digest-pinned, checked against the `go.mod` toolchain in the Dockerfile)
 **Modules:** `golang-jwt/jwt/v5` v5.3.1 (RS256 signing), `google/uuid` v1.6.0 (`jti`); everything else is stdlib
 **Entry points:** `cmd/server` (listens on `:8080`: `GET /token`, `GET /healthz`; `-healthcheck` flag for the container `HEALTHCHECK`)
@@ -438,6 +441,64 @@ amd64 image (every file); the arm64 image holds an ELF aarch64 binary (`3272d30e
 **Remediation / evidence:** 0.1.9 bumps the toolchain to Go 1.26.10 (`go.mod`, the Dockerfile builder digest; the Dockerfile fails if the builder's Go differs from the `go.mod` toolchain). The gate was not weakened and no ignore entry was added. Proof: the `Publish (Docker)` run 39764355765 for `v0.1.9` succeeded, including the scan before signing (read with `gh`, 2026-10-22); `config/images.yaml` pins `0.1.9@sha256:8f09128b…0c47`.
 Related: registry-auth-proxy F24 (the same advisory, reachable there), static-server F13.
 
+### Part B documentation pass (2026-11-26)
+
+Scope: every tracked file read against the workspace's `docs/operations/DOCUMENTATION_STANDARD.md` and annotated (Part B Phase 1, the twenty-fourth repository, the fourth and last of the Go services); the DOCS, RFC, IOP, PRIV
+and CONF lenses applied for the first time. Before and after editing: `go vet`, `go test -race` (33 tests before, 34 after; 57.9 % `cmd/server`, 94.7 % config, 92.6 % hydra, 88.9 % keto, 88.7 % token) and `golangci-lint`
+2.15.0 (0 issues, with the new revive rules). The only code change is F25 and its test; everything else is comments, documents and configuration comments. The image build and the notices check were not re-run (no container
+daemon in this sandbox; CI runs them).
+
+#### B.RFC-1 Standards inventory
+
+| Standard | Where | Evidence |
+| --- | --- | --- |
+| OAuth 2.0 client credentials grant (RFC 6749 §4.4), used only to check the caller's own credentials at Hydra | `internal/hydra` | `TestValidateClientCredentials` |
+| HTTP Basic authentication, RFC 7617: the caller's credentials on `GET /token` and the same credentials passed on to Hydra | `main.go`, `hydra/client.go` | `TestToken_NoCredentialsNeverReachesAnAnchor` (401 with a Basic challenge) |
+| JSON Web Token, RFC 7519, signed as JWS RS256 (RFC 7515, RFC 7518); the `kid` is the JWK thumbprint of RFC 7638 | `internal/token/issuer.go` | `TestSignClaims`, `verify` in the flow tests |
+| Distribution token authentication (the `access` claim, `aud` as a plain string, the `service` and `scope` parameters): a registry convention, not an IETF standard | `issuer.go`, `scope.go` | recorded as non-final (B.RFC-2) |
+| HTTP semantics, RFC 9110: `401` with `WWW-Authenticate`, `400`, `503` | `main.go` | the flow tests |
+
+**B.RFC-2 Non-final standards:** the registry token-authentication format is a de facto specification (the one the Distribution registry and the OCI ecosystem implement); it is the reason the service exists, so it is recorded
+here rather than avoided. **B.RFC-3 Deviations:** `aud` is serialised as a plain string, not an array, because the registry's parser requires it (RFC 7519 allows both); documented at `registryClaims`.
+
+#### B.IOP Interoperability, portability and exit
+
+- **Portability and exit:** the service holds no person's data and no state; leaving is pointing the registry at any token service that speaks the same format.
+- **Open API:** `GET /token` (the Distribution token-authentication request) and `GET /healthz`; no special access for our own clients.
+- **Dependencies (exit register):** Ory Hydra and Ory Keto at run time (the identity layer is under migration, ADR-0016), the `golang` builder image, quay.io, Docker Hub,
+  the self-hosted registry, GitHub Actions, Sigstore, Trivy; the build and release dependencies are replaceable by a rebuild from source.
+- **Incentives:** no telemetry, no ads, no tracking.
+
+#### B.PRIV Privacy honoured
+
+- **Browser storage:** none (a token API; no cookie is set).
+- **Logs:** one issuance line per token (client id, the grant, no secret and no token: tested by `TestToken_AuditLineNamesWhatWasGrantedAndNeverTheSecret`), a warning for each refused credential or service mismatch with the
+  client id and the requested service, and an error for each Hydra or Keto failure with the repository name. No address, user agent or password is logged. The client id is an operator-created machine identity, not a person.
+- **Data held:** none about a person; the signing key is a mounted Secret.
+
+#### B.CONF Configuration and values
+
+- **Configuration surface:** `config.Load` (eight environment variables and the key file; one typed `Config`), documented in the README, `CLAUDE.md` and `.env.example`.
+- **Values that can carry a credential:** `HYDRA_TOKEN_URL` and `KETO_READ_URL` (a URL may carry a user name, password, path token or query key); the signing key is a file, never an environment variable.
+- **Echo sweep (2026-11-26):** every `fmt.Errorf`, `errors.New` and `slog` call read. The configuration errors for both URLs repeated the value (F25, fixed); the key errors name the path and never the content. The Hydra and
+  Keto clients include the answering service's response body (at most 4 KiB and 1 KiB) in the error for an unexpected status; that is an upstream response, not a configured value, and it is logged only at `error`.
+- **Validation:** each value is parsed once at start-up and the process exits with a message naming the variable; the lifetime and key size are range-checked.
+
+### F25 — A rejected `HYDRA_TOKEN_URL` or `KETO_READ_URL` was repeated in the start-up error
+**Severity:** Low   **Disposition:** RESOLVED (2026-11-26, unreleased)
+**Where:** `internal/config/config.go` `validateHTTPURL`.
+**Issue:** the errors quoted the whole value (`invalid HYDRA_TOKEN_URL "…"`, `… got scheme "…" in "…"`, `… must include a host: "…"`), and the parse error quoted it again. A value written as `https://user:password@host/?key=…`,
+or mistyped as `user:password@host` (which parses with `user` as the scheme), put its credential in the container log.
+**Impact:** a credential in a log; small, because the value is operator-typed and the log is the operator's, but the log can be shipped elsewhere.
+**Remediation / evidence:** the errors name the variable and what is wrong ("must be an http(s) URL", "must include a host", "not a valid URL") and repeat nothing of the value, not even its scheme.
+`TestURLErrorsNeverEchoTheValue` feeds four values carrying a user name, password, path token and query key and asserts none appears.
+
+### F26 — Documentation drift found by the documentation pass
+**Severity:** Low   **Disposition:** RESOLVED (2026-11-26, unreleased)
+**Where:** `README.md` (the development section sent readers to `AGENTS.md` for the layout, but `AGENTS.md` is a pointer to `CLAUDE.md`; the notices check was missing from the CI list), `CHANGELOG.md` (no `Unreleased`
+section), the tests (nine files with no header, about forty undocumented declarations), the workflows, `.dockerignore` and `dependabot.yml` (few or no comments); there was no `CONTRIBUTING.md` and no lint that checks doc comments.
+**Remediation / evidence:** the documents and comments are written; `.golangci.yml` turns on revive's `exported`, `package-comments` and `comment-spacings`; `check-docs` for the repository passes.
+
 ## Section A — Invariant verification matrix
 
 | # | Invariant | Enforced at | Proven by | Status |
@@ -724,3 +785,6 @@ passing; `cmd/server` 57.9%, `internal/config` 93.0%, `internal/hydra` 92.6%, `i
 - 2026-10-22 (audit close-out) — F24 added (RESOLVED): Trivy flags the Go 1.26.9 standard library (CVE-2026-111943, HIGH, fixed in 1.26.10) in the published binary, although govulncheck found it unreachable; the scan-before-sign gate would block the release. Resolved by the Go 1.26.10 bump in 0.1.9 (`v0.1.9` = `c23dfde`, `Publish (Docker)` run 39764355765 succeeded; pinned in `config/images.yaml`). Counts: 24 findings — 18 RESOLVED, 2 ADJUDICATED, 3 ACCEPTED-RISK, 0 DEFERRED, 1 Positive (F23 and F24 added since 2026-10-18). Not re-run here: the Go tests and the scans.
 - 2026-11-05 — delta review against the code since the 2026-10-22 close-out (`f99e4ba`): only the Dependabot Actions bump (`docker/login-action` 4.6.0 → 4.7.0, `oras-project/setup-oras` 2.0.1 → 2.0.2; pinned by commit SHA with a version comment; no `permissions` or trigger change) and nothing else (`git diff f99e4ba..HEAD --stat` shows only `docker-publish.yml`). Ran `go vet ./...`, `go test -race -count=1 ./...` (cmd/server, config, hydra, keto, token pass) and `govulncheck v1.8.0 ./...` (no vulnerabilities; run on the local Go 1.27.3 standard library — the 1.26.10 toolchain is pinned in `go.mod`, F24). No source change, so no finding changed and none was added. The OAuth client table (Section on clients) was not re-read against the live Hydra: its `Last reviewed` column stays at the dates it shows. Lens check: A11Y (2026-11-01) not triggered — no UI. Base date re-cited to the 2026-11-01 registry (the base gained the A11Y code only). Pin: `config/images.yaml` names 0.1.9; the live digest is compared at the next deploy.
 - 2026-11-07 — mainnet-readiness sweep, local re-check (no code change): `govulncheck ./...` (rebuilt with Go 1.27.3 so it matches the toolchain) reports no vulnerabilities, and `golangci-lint run ./...` (2.15.0, the repository's configuration) reports 0 issues. This closes the "not run locally" rows for the Go checks. No finding changed.
+- 2026-11-26 — Part B documentation pass and first application of the DOCS, RFC, IOP, PRIV and CONF lenses (above, "Part B documentation pass"). Baseline before editing: `go vet`, `go test -race` (33 tests). Every tracked file annotated
+  to the documentation standard; `CONTRIBUTING.md` and `.golangci.yml` added; README and CLAUDE.md corrected. Found and fixed **F25** (a rejected URL repeated in the start-up error) and **F26** (documentation drift).
+  Re-run after editing: `go vet`, `go test -race` (34 tests), golangci-lint 2.15.0 (0 issues). Counts: F1 to F26.

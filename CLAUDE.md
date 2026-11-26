@@ -80,8 +80,8 @@ scripts/                    third-party-licenses.sh (image notices), check-image
 | `TOKEN_SERVICE` | yes | none | `aud` claim + registry service name |
 | `TOKEN_TTL` | no | `300` | Token lifetime in seconds (bounded; out-of-range values are refused at startup) |
 | `RSA_PRIVATE_KEY_PATH` | no | `/etc/token-service/signing.key` | PEM RSA private key |
-| `HYDRA_TOKEN_URL` | yes | none | Hydra public token endpoint (`POST /oauth2/token`) |
-| `KETO_READ_URL` | yes | none | Keto read API base URL |
+| `HYDRA_TOKEN_URL` | yes | none | Hydra public token endpoint (`POST /oauth2/token`; `http` or `https` with a host; a rejected value is never echoed) |
+| `KETO_READ_URL` | yes | none | Keto read API base URL (`http` or `https` with a host; a rejected value is never echoed) |
 | `LOG_LEVEL` | no | `info` | `debug\|info\|warn\|error` |
 
 ```bash
@@ -92,6 +92,8 @@ openssl genrsa -out signing.key 4096 && openssl rsa -in signing.key -pubout -out
 curl -su registry-ci-push:$SECRET \
   "http://localhost:8080/token?service=registry.meddleware.co.uk&scope=repository:meddleware-org/static-server:push"
 ```
+
+Also in the repository: `.golangci.yml` (the default linters plus revive's `exported`, `package-comments` and `comment-spacings`) and `CONTRIBUTING.md` (how to build, test and propose a change).
 
 ## Code style
 

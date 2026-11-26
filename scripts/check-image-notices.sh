@@ -10,6 +10,7 @@ cli=${CONTAINER_CLI:-docker}
 tag=registry-token-service-notices-check:$$
 work=$(mktemp -d)
 cid=
+# cleanup removes the temporary container, image and work directory; it runs on every exit path (trap below).
 cleanup() {
 	[ -z "$cid" ] || "$cli" rm -f "$cid" >/dev/null 2>&1 || true
 	"$cli" rmi -f "$tag" >/dev/null 2>&1 || true

@@ -1,8 +1,14 @@
+# Files kept out of the image build context: the build needs the Go sources, go.mod, go.sum and the licence, nothing else.
+# Build inputs that are never copied into an image layer:
 Dockerfile
 .dockerignore
+# Documentation and repository metadata.
 *.md
 .gitignore
+# Environment files can hold secrets; a context must never carry them.
 .env*
+# CI and release tooling that runs outside the image.
 .github/
 .git
+# The repository-level machine-readable description; it is not served by this service.
 llms.txt

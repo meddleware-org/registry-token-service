@@ -1,3 +1,5 @@
+// Tests for the issuer: the claims and header of a signed token, verified the way the registry verifies them.
+
 package token
 
 import (
@@ -15,12 +17,14 @@ import (
 // TestSignClaims verifies what the registry checks: RS256 with the RFC 7638 kid, iss, a
 // string aud equal to the service, sub, iat/exp spanning the TTL, a jti, and the access list.
 func TestSignClaims(t *testing.T) {
+	// A small key keeps the test fast.
 	key, err := rsa.GenerateKey(rand.Reader, 2048) // size is enforced by config, not the issuer
 	if err != nil {
 		t.Fatal(err)
 	}
 	iss := NewIssuer("token-service", "registry.example", 5*time.Minute, key)
 	access := []AccessClaim{{Type: "repository", Name: "org/app", Actions: []string{"pull"}}}
+	// Sign one token for one client with one pull grant.
 	signed, exp, err := iss.Sign("client", access)
 	if err != nil {
 		t.Fatal(err)
@@ -35,11 +39,13 @@ func TestSignClaims(t *testing.T) {
 		t.Errorf("kid %v is not the key's RFC 7638 thumbprint", parsed.Header["kid"])
 	}
 
+	// Decode the payload by hand: the registry requires "aud" to be a plain string, which a typed parse would hide.
 	payload, _ := jwt.NewParser().DecodeSegment(strings.Split(signed, ".")[1])
 	var claims map[string]any
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		t.Fatal(err)
 	}
+	// The claim must be a JSON string, not an array.
 	if _, isString := claims["aud"].(string); !isString {
 		t.Errorf("aud must be a JSON string for distribution v3, got %T", claims["aud"])
 	}

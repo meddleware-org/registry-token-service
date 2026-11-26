@@ -25,12 +25,14 @@ import (
 	"github.com/meddleware-org/registry-token-service/internal/token"
 )
 
+// The fixed service, issuer and lifetime the flow tests use.
 const (
 	flowService = "registry.example"
 	flowIssuer  = "https://token.example"
 	flowTTL     = 5 * time.Minute
 )
 
+// anchors are the two fake dependencies the token flow calls, Hydra (credentials) and Keto (permissions), with a call counter for each.
 type anchors struct {
 	hydraCalls atomic.Int32
 	ketoCalls  atomic.Int32
@@ -75,6 +77,7 @@ func newAnchors(t *testing.T, hydraStatus int, granted map[string]bool, ketoStat
 	return a
 }
 
+// newFlow builds the real token handler over the fake anchors and returns it with the key that signs its tokens.
 func newFlow(t *testing.T, a *anchors) (http.Handler, *rsa.PrivateKey) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048) // the 4096-bit floor is enforced by config.Load
@@ -85,12 +88,14 @@ func newFlow(t *testing.T, a *anchors) (http.Handler, *rsa.PrivateKey) {
 	return handleToken(hydra.NewClient(a.hydraSrv.URL), keto.NewClient(a.ketoSrv.URL), issuer, flowService), key
 }
 
+// serve runs one request through a handler and returns the recorded response.
 func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
 }
 
+// request builds a GET /token request for a scope, with Basic credentials when auth is true.
 func request(scope string, auth bool) *http.Request {
 	q := url.Values{"service": {flowService}, "scope": {scope}}
 	req := httptest.NewRequest(http.MethodGet, "/token?"+q.Encode(), nil)
@@ -109,6 +114,7 @@ func requestScopes(scopes ...string) *http.Request {
 	return req
 }
 
+// issued is the JSON body of a successful token response.
 type issued struct {
 	Token     string `json:"token"`
 	ExpiresIn int    `json:"expires_in"`
@@ -127,6 +133,7 @@ func verify(t *testing.T, signed string, key *rsa.PrivateKey) jwt.MapClaims {
 	return claims
 }
 
+// accessOf flattens a token's access claim into "type:name" to actions, for comparison.
 func accessOf(t *testing.T, claims jwt.MapClaims) map[string][]string {
 	t.Helper()
 	out := map[string][]string{}
@@ -142,6 +149,7 @@ func accessOf(t *testing.T, claims jwt.MapClaims) map[string][]string {
 	return out
 }
 
+// TestToken_NoCredentialsNeverReachesAnAnchor checks a request with no credentials is refused without calling Hydra or Keto.
 func TestToken_NoCredentialsNeverReachesAnAnchor(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, nil, 0, "")
 	h, _ := newFlow(t, a)
@@ -157,6 +165,7 @@ func TestToken_NoCredentialsNeverReachesAnAnchor(t *testing.T) {
 	}
 }
 
+// TestToken_InvalidCredentialsAreRefusedBeforeAuthorization checks credentials Hydra rejects are refused and Keto is never asked.
 func TestToken_InvalidCredentialsAreRefusedBeforeAuthorization(t *testing.T) {
 	a := newAnchors(t, http.StatusUnauthorized, map[string]bool{"org/app#pullers": true}, 0, "")
 	h, _ := newFlow(t, a)
@@ -173,6 +182,7 @@ func TestToken_InvalidCredentialsAreRefusedBeforeAuthorization(t *testing.T) {
 	}
 }
 
+// TestToken_GrantIsTheIntersectionOfRequestedAndGranted checks the token carries only the actions that were both requested and permitted.
 func TestToken_GrantIsTheIntersectionOfRequestedAndGranted(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, map[string]bool{"org/app#pullers": true}, 0, "")
 	h, key := newFlow(t, a)
@@ -204,6 +214,7 @@ func TestToken_GrantIsTheIntersectionOfRequestedAndGranted(t *testing.T) {
 	}
 }
 
+// TestToken_DenyByDefaultAndEmptyAccessIsStillA200 checks no grant yields a valid token with empty access (200), so the registry itself answers 401 or 403.
 func TestToken_DenyByDefaultAndEmptyAccessIsStillA200(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, nil, 0, "")
 	h, key := newFlow(t, a)
@@ -220,6 +231,7 @@ func TestToken_DenyByDefaultAndEmptyAccessIsStillA200(t *testing.T) {
 	}
 }
 
+// TestToken_OrgGrantAppliesToItsRepositoriesAndCatalogNeedsListers checks an organisation grant covers its repositories and the catalog needs the listers relation.
 func TestToken_OrgGrantAppliesToItsRepositoriesAndCatalogNeedsListers(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, map[string]bool{"org#pushers": true, "catalog#listers": true}, 0, "")
 	h, key := newFlow(t, a)
@@ -232,6 +244,7 @@ func TestToken_OrgGrantAppliesToItsRepositoriesAndCatalogNeedsListers(t *testing
 	}
 }
 
+// TestToken_UnknownTypesAndActionsGrantNothing checks resource types and actions the service does not know are never granted.
 func TestToken_UnknownTypesAndActionsGrantNothing(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, map[string]bool{"org/app#pullers": true, "org/app#pushers": true}, 0, "")
 	h, key := newFlow(t, a)
@@ -244,6 +257,7 @@ func TestToken_UnknownTypesAndActionsGrantNothing(t *testing.T) {
 	}
 }
 
+// TestToken_MalformedRepositoryNamesNeverReachKeto checks a name outside the repository grammar is dropped before any permission query is built from it.
 func TestToken_MalformedRepositoryNamesNeverReachKeto(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, map[string]bool{"Org/App#pullers": true, "a/../b#pullers": true}, 0, "")
 	h, key := newFlow(t, a)
@@ -262,6 +276,7 @@ func TestToken_MalformedRepositoryNamesNeverReachKeto(t *testing.T) {
 	}
 }
 
+// TestToken_RequestsAreBounded checks an oversized scope list or scope string is refused, so one request cannot fan out into unbounded Keto calls.
 func TestToken_RequestsAreBounded(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, nil, 0, "")
 	h, _ := newFlow(t, a)
@@ -283,6 +298,7 @@ func TestToken_RequestsAreBounded(t *testing.T) {
 	}
 }
 
+// TestToken_EveryRepeatedScopeParameterIsEvaluated checks each repeated scope parameter is evaluated, as Docker clients send them.
 func TestToken_EveryRepeatedScopeParameterIsEvaluated(t *testing.T) {
 	// A push with a cross-repository mount: the registry's challenge names the target (push, pull) and the
 	// source (pull) as separate entries, which the client sends as repeated `scope` parameters.
@@ -302,6 +318,7 @@ func TestToken_EveryRepeatedScopeParameterIsEvaluated(t *testing.T) {
 	}
 }
 
+// TestToken_RepeatedScopeParametersStayAFilterNeverAPassthrough checks repeating a parameter can only narrow what is granted, never widen it.
 func TestToken_RepeatedScopeParametersStayAFilterNeverAPassthrough(t *testing.T) {
 	// Keto grants pull on both repositories and push on neither; the client asks for more in each parameter.
 	a := newAnchors(t, http.StatusOK, map[string]bool{"org/one#pullers": true, "org/two#pullers": true}, 0, "")
@@ -318,6 +335,7 @@ func TestToken_RepeatedScopeParametersStayAFilterNeverAPassthrough(t *testing.T)
 	}
 }
 
+// TestToken_ScopeBoundsApplyAcrossRepeatedParameters checks the size and count bounds apply to all repeated parameters together, not to each one.
 func TestToken_ScopeBoundsApplyAcrossRepeatedParameters(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, nil, 0, "")
 	h, _ := newFlow(t, a)
@@ -362,6 +380,7 @@ func TestToken_ScopeBoundsApplyAcrossRepeatedParameters(t *testing.T) {
 	}
 }
 
+// TestToken_EveryAnchorFailureIsA503 checks every kind of Hydra or Keto failure (status, malformed body) is a 503 and never a token.
 func TestToken_EveryAnchorFailureIsA503(t *testing.T) {
 	cases := []struct {
 		name string
@@ -389,6 +408,7 @@ func TestToken_EveryAnchorFailureIsA503(t *testing.T) {
 	}
 }
 
+// TestToken_AnUnreachableAnchorIsA503 checks an anchor that cannot be reached at all is a 503.
 func TestToken_AnUnreachableAnchorIsA503(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, nil, 0, "")
 	h, _ := newFlow(t, a)
@@ -402,6 +422,7 @@ func TestToken_AnUnreachableAnchorIsA503(t *testing.T) {
 	}
 }
 
+// TestToken_AuditLineNamesWhatWasGrantedAndNeverTheSecret checks the issuance log line records the client and the grant and contains neither the secret nor the token.
 func TestToken_AuditLineNamesWhatWasGrantedAndNeverTheSecret(t *testing.T) {
 	var buf bytes.Buffer
 	prev := slog.Default()
@@ -430,6 +451,7 @@ func TestToken_AuditLineNamesWhatWasGrantedAndNeverTheSecret(t *testing.T) {
 	}
 }
 
+// TestToken_ServiceMustNameThisService checks a request for another service, or none, is refused with 400.
 func TestToken_ServiceMustNameThisService(t *testing.T) {
 	a := newAnchors(t, http.StatusOK, nil, 0, "")
 	h, _ := newFlow(t, a)

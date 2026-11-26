@@ -38,6 +38,7 @@ import (
 	"github.com/meddleware-org/registry-token-service/internal/token"
 )
 
+// main wires the service: validated configuration, the Hydra and Keto clients, the token issuer, the HTTP server and a graceful shutdown.
 func main() {
 	// `-healthcheck` mode is used by the container HEALTHCHECK on non-Kubernetes
 	// runtimes (Docker/Compose). It dials the local /healthz endpoint and exits
@@ -353,6 +354,7 @@ type responseWriter struct {
 	code int
 }
 
+// WriteHeader records the status code before passing it on, so the request log can report it.
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.code = code
 	rw.ResponseWriter.WriteHeader(code)

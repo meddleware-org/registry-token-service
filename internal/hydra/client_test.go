@@ -1,3 +1,5 @@
+// Tests for the Hydra client: how each Hydra answer maps to valid, invalid or an error, against an httptest server.
+
 package hydra
 
 import (
@@ -46,6 +48,7 @@ func TestValidateClientCredentials(t *testing.T) {
 	}
 }
 
+// TestValidateClientCredentialsUnreachable checks an unreachable Hydra is an error (so the caller answers 503), not a refusal of the credentials.
 func TestValidateClientCredentialsUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL
