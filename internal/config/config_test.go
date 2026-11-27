@@ -205,3 +205,34 @@ func TestAuthzModes(t *testing.T) {
 		}
 	})
 }
+
+// TestIDPTokenURL: IDP_TOKEN_URL is preferred, HYDRA_TOKEN_URL still works, one of them is required, and a rejected value is named by the variable that carried it.
+func TestIDPTokenURL(t *testing.T) {
+	key := writeKey(t, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(strongKey(t)))
+	// Only the old variable: as before.
+	setValidEnv(t, key)
+	cfg, err := Load()
+	if err != nil || cfg.HydraTokenURL != "http://hydra:4444/oauth2/token" {
+		t.Fatalf("old variable: %+v %v", cfg, err)
+	}
+	// Both set: the new one wins.
+	t.Setenv("IDP_TOKEN_URL", "http://keycloak:8080/realms/meddleware/protocol/openid-connect/token")
+	if cfg, err = Load(); err != nil || !strings.Contains(cfg.HydraTokenURL, "keycloak") {
+		t.Fatalf("new variable: %+v %v", cfg, err)
+	}
+	// Only the new one: the old is not required.
+	t.Setenv("HYDRA_TOKEN_URL", "")
+	if _, err = Load(); err != nil {
+		t.Fatalf("new variable alone: %v", err)
+	}
+	// A bad new value is reported under its own name.
+	t.Setenv("IDP_TOKEN_URL", "http://")
+	if _, err = Load(); err == nil || !strings.Contains(err.Error(), "IDP_TOKEN_URL") {
+		t.Fatalf("bad value: %v", err)
+	}
+	// Neither set: required.
+	t.Setenv("IDP_TOKEN_URL", "")
+	if _, err = Load(); err == nil {
+		t.Fatal("no token URL accepted")
+	}
+}

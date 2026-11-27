@@ -13,7 +13,8 @@
 //	TOKEN_SERVICE      — aud claim and registry service name (e.g. registry.meddleware.co.uk)
 //	TOKEN_TTL          — token lifetime in seconds (default: 300)
 //	RSA_PRIVATE_KEY_PATH — path to PEM RSA private key file
-//	HYDRA_TOKEN_URL    — Hydra public token endpoint (POST /oauth2/token)
+//	IDP_TOKEN_URL      — identity provider token endpoint for the client-credentials check (Keycloak or Hydra); preferred over HYDRA_TOKEN_URL
+//	HYDRA_TOKEN_URL    — Hydra public token endpoint (POST /oauth2/token), used when IDP_TOKEN_URL is not set
 //	KETO_READ_URL      — Keto read API base URL (not needed when AUTHZ_MODE=openfga)
 //	AUTHZ_MODE         — keto (default) | shadow (Keto decides, OpenFGA compared and differences logged) | openfga (OpenFGA decides)
 //	OPENFGA_URL        — OpenFGA store base URL, e.g. http://openfga.auth.svc.cluster.local:8080/stores/<id> (shadow and openfga modes)

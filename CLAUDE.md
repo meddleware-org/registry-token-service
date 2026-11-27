@@ -80,7 +80,8 @@ scripts/                    third-party-licenses.sh (image notices), check-image
 | `TOKEN_SERVICE` | yes | none | `aud` claim + registry service name |
 | `TOKEN_TTL` | no | `300` | Token lifetime in seconds (bounded; out-of-range values are refused at startup) |
 | `RSA_PRIVATE_KEY_PATH` | no | `/etc/token-service/signing.key` | PEM RSA private key |
-| `HYDRA_TOKEN_URL` | yes | none | Hydra public token endpoint (`POST /oauth2/token`; `http` or `https` with a host; a rejected value is never echoed) |
+| `IDP_TOKEN_URL` | yes (or `HYDRA_TOKEN_URL`) | none | Identity provider token endpoint for the client-credentials check: Keycloak's `/realms/<realm>/protocol/openid-connect/token` or Hydra's `/oauth2/token` (`http` or `https` with a host; a rejected value is never echoed, only its variable name). Preferred over `HYDRA_TOKEN_URL` when both are set |
+| `HYDRA_TOKEN_URL` | yes, unless `IDP_TOKEN_URL` is set | none | Hydra public token endpoint (`POST /oauth2/token`; `http` or `https` with a host; a rejected value is never echoed) |
 | `KETO_READ_URL` | yes (not in `openfga` mode) | none | Keto read API base URL (`http` or `https` with a host; a rejected value is never echoed) |
 | `AUTHZ_MODE` | no | `keto` | `keto` (Keto decides), `shadow` (Keto decides, OpenFGA is asked in the background only to compare: a difference or a failure is logged, never acted on) or `openfga` (OpenFGA decides; the cut-over of the identity migration, ADR-0016 stage 3) |
 | `OPENFGA_URL` | in `shadow` and `openfga` | none | OpenFGA store base URL, `http://openfga.auth.svc.cluster.local:8080/stores/<id>` |

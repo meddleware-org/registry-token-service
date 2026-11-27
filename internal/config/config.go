@@ -42,8 +42,10 @@ type Config struct {
 	// PrivateKey is the RSA private key used to sign JWTs.
 	PrivateKey *rsa.PrivateKey
 
-	// HydraTokenURL is the Hydra public OAuth2 token endpoint used to validate
-	// client credentials (e.g. "http://hydra.auth.svc.cluster.local:4444/oauth2/token").
+	// HydraTokenURL is the identity provider's OAuth2 token endpoint, used to validate client credentials with a client_credentials grant: Hydra's
+	// (e.g. "http://hydra.auth.svc.cluster.local:4444/oauth2/token") or Keycloak's
+	// (e.g. "http://keycloak.auth.svc.cluster.local:8080/realms/meddleware/protocol/openid-connect/token"). The field keeps its old name; the environment variable is
+	// IDP_TOKEN_URL, with HYDRA_TOKEN_URL still read when it is not set.
 	HydraTokenURL string
 
 	// KetoReadURL is the base URL of the Keto read API
@@ -81,7 +83,13 @@ func Load() (*Config, error) {
 	port := envOr("PORT", "8080")
 	tokenIssuer := requireEnv("TOKEN_ISSUER")
 	tokenService := requireEnv("TOKEN_SERVICE")
-	hydraTokenURL := requireEnv("HYDRA_TOKEN_URL")
+	// The identity provider's token endpoint: IDP_TOKEN_URL, else the older HYDRA_TOKEN_URL, so a deployment moves from Hydra to Keycloak by changing one value.
+	tokenURLVar := "IDP_TOKEN_URL"
+	hydraTokenURL := os.Getenv(tokenURLVar)
+	if hydraTokenURL == "" {
+		tokenURLVar = "HYDRA_TOKEN_URL"
+		hydraTokenURL = requireEnv(tokenURLVar)
+	}
 	logLevel := envOr("LOG_LEVEL", "info")
 
 	// The authorization backend. Keto stays the default so a deployment that sets nothing new behaves exactly as before.
@@ -120,7 +128,7 @@ func Load() (*Config, error) {
 	// first token request. Both are in-cluster ClusterIP services over http, so `http` is allowed;
 	// only unparseable, host-less, or non-http(s) values are rejected. (Transport encryption for
 	// these hops is provided at the platform layer — see the registry-token-service audit F4.)
-	if err := validateHTTPURL("HYDRA_TOKEN_URL", hydraTokenURL); err != nil {
+	if err := validateHTTPURL(tokenURLVar, hydraTokenURL); err != nil {
 		return nil, err
 	}
 	if ketoReadURL != "" {

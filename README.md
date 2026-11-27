@@ -66,7 +66,8 @@ Point the Distribution registry's `auth.token` block at this service
 | `TOKEN_SERVICE` | **yes** | — | `aud` claim + registry service name |
 | `TOKEN_TTL` | no | `300` | Token lifetime in seconds (an integer in the allowed range; out-of-range values are refused at start-up) |
 | `RSA_PRIVATE_KEY_PATH` | no | `/etc/token-service/signing.key` | PEM RSA private key (≥ 4096-bit; the service refuses to start otherwise) |
-| `HYDRA_TOKEN_URL` | **yes** | — | Hydra public token endpoint (`POST /oauth2/token`); `http` or `https` with a host |
+| `IDP_TOKEN_URL` | **yes** (or `HYDRA_TOKEN_URL`) | — | Identity provider token endpoint (Keycloak `.../protocol/openid-connect/token` or Hydra `/oauth2/token`); preferred over `HYDRA_TOKEN_URL` |
+| `HYDRA_TOKEN_URL` | **yes**, unless `IDP_TOKEN_URL` is set | — | Hydra public token endpoint (`POST /oauth2/token`); `http` or `https` with a host |
 | `KETO_READ_URL` | **yes** (not in `openfga` mode) | — | Keto read API base URL; `http` or `https` with a host |
 | `AUTHZ_MODE` | no | `keto` | `keto`, `shadow` (Keto decides, OpenFGA compared in the background, differences logged) or `openfga` |
 | `OPENFGA_URL` | in `shadow` and `openfga` | — | OpenFGA store base URL (`.../stores/<id>`) |

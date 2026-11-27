@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-27
+
+### Added
+
+- `IDP_TOKEN_URL`: the identity provider's token endpoint for the client-credentials check (Keycloak or Hydra). It is preferred over `HYDRA_TOKEN_URL`, which still works, so the move from Hydra to Keycloak (ADR-0016 stage 4) is one configuration value.
+
 ## [0.1.14] - 2026-11-27
 
 ### Added
