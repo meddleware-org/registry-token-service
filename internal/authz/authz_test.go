@@ -53,8 +53,10 @@ func TestShadowReturnsThePrimaryAnswerWhateverTheSecondarySays(t *testing.T) {
 		"secondary errors": {&fake{allow: true}, &fake{err: errors.New("down")}, true, "no answer"},
 	}
 	for name, c := range cases {
+		// One Shadow per case, with its own log buffer and wait group.
 		s, buf, wg := shadowWith(c.primary, c.secondary)
 		got, err := s.CheckPermission(context.Background(), "Registry", "org", "pushers", "client")
+		// Wait for the background comparison before reading the log.
 		wg.Wait()
 		if err != nil || got != c.want {
 			t.Errorf("%s: got %v %v, want %v", name, got, err, c.want)
@@ -84,6 +86,7 @@ func TestShadowPrimaryErrorFailsClosedAndSkipsTheSecondary(t *testing.T) {
 
 // TestPDPMapsKetoNamesToTheModel checks the request the PDP receives: resource type registry, the relation as the action, the subject as a user, the key as a Bearer token.
 func TestPDPMapsKetoNamesToTheModel(t *testing.T) {
+	// What the fake PDP saw: the decoded request body and the Authorization header.
 	var body map[string]map[string]string
 	var auth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +95,7 @@ func TestPDPMapsKetoNamesToTheModel(t *testing.T) {
 		_, _ = w.Write([]byte(`{"decision":true}`))
 	}))
 	defer srv.Close()
+	// The key "k" must arrive as a Bearer token.
 	p, err := NewPDP(srv.URL, "k")
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +139,9 @@ func TestMetricsCountTheComparisons(t *testing.T) {
 		MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 		return rec.Body.String()
 	}
+	// The counters are process-wide: remember them and check the change.
 	before := [3]uint64{shadowAgree.Load(), shadowDiffer.Load(), shadowError.Load()}
+	// One comparison of each kind: agree, differ, secondary error.
 	for _, c := range []struct{ p, s *fake }{{&fake{allow: true}, &fake{allow: true}}, {&fake{allow: true}, &fake{}}, {&fake{allow: true}, &fake{err: errors.New("x")}}} {
 		sh, _, wg := shadowWith(c.p, c.s)
 		_, _ = sh.CheckPermission(context.Background(), "Registry", "o", "pushers", "c")
