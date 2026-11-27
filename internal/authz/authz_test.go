@@ -127,3 +127,27 @@ func TestPDPFailsClosedWhenUnreachable(t *testing.T) {
 		t.Errorf("got %v %v", ok, err)
 	}
 }
+
+// TestMetricsCountTheComparisons: the handler reports agree, differ and error as they happen (the counters are process-wide, so the test compares deltas).
+func TestMetricsCountTheComparisons(t *testing.T) {
+	read := func() string {
+		rec := httptest.NewRecorder()
+		MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+		return rec.Body.String()
+	}
+	before := [3]uint64{shadowAgree.Load(), shadowDiffer.Load(), shadowError.Load()}
+	for _, c := range []struct{ p, s *fake }{{&fake{allow: true}, &fake{allow: true}}, {&fake{allow: true}, &fake{}}, {&fake{allow: true}, &fake{err: errors.New("x")}}} {
+		sh, _, wg := shadowWith(c.p, c.s)
+		_, _ = sh.CheckPermission(context.Background(), "Registry", "o", "pushers", "c")
+		wg.Wait()
+	}
+	if shadowAgree.Load() != before[0]+1 || shadowDiffer.Load() != before[1]+1 || shadowError.Load() != before[2]+1 {
+		t.Errorf("counters moved by %d %d %d, want 1 1 1", shadowAgree.Load()-before[0], shadowDiffer.Load()-before[1], shadowError.Load()-before[2])
+	}
+	out := read()
+	for _, want := range []string{`result="agree"`, `result="differ"`, `result="error"`, "# TYPE token_service_authz_shadow_checks_total counter"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("metrics lack %q", want)
+		}
+	}
+}

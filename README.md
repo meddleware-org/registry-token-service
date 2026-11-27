@@ -71,6 +71,7 @@ Point the Distribution registry's `auth.token` block at this service
 | `AUTHZ_MODE` | no | `keto` | `keto`, `shadow` (Keto decides, OpenFGA compared in the background, differences logged) or `openfga` |
 | `OPENFGA_URL` | in `shadow` and `openfga` | — | OpenFGA store base URL (`.../stores/<id>`) |
 | `OPENFGA_KEY` | in `shadow` and `openfga` | — | OpenFGA pre-shared key (Bearer token; never logged) |
+| `METRICS_ADDR` | no | `:9102` | Metrics listener (`/metrics`, shadow-comparison counters); keep it off the public Ingress |
 | `LOG_LEVEL` | no | `info` | `debug \| info \| warn \| error` |
 
 A rejected URL is reported by its variable name only, never its value: a configured URL can carry a credential, and the message reaches the container log.

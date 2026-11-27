@@ -85,6 +85,7 @@ scripts/                    third-party-licenses.sh (image notices), check-image
 | `AUTHZ_MODE` | no | `keto` | `keto` (Keto decides), `shadow` (Keto decides, OpenFGA is asked in the background only to compare: a difference or a failure is logged, never acted on) or `openfga` (OpenFGA decides; the cut-over of the identity migration, ADR-0016 stage 3) |
 | `OPENFGA_URL` | in `shadow` and `openfga` | none | OpenFGA store base URL, `http://openfga.auth.svc.cluster.local:8080/stores/<id>` |
 | `OPENFGA_KEY` | in `shadow` and `openfga` | none | OpenFGA pre-shared key, sent as a Bearer token; a secret, never logged or put in an error |
+| `METRICS_ADDR` | no | `:9102` | Listen address of the metrics endpoint (`GET /metrics`: `token_service_authz_shadow_checks_total{result=agree|differ|error}`). A separate listener: the Ingress routes every path of the token host to the main port, so metrics never live there. |
 | `LOG_LEVEL` | no | `info` | `debug\|info\|warn\|error` |
 
 ```bash

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-27
+
+### Added
+
+- A metrics listener (`METRICS_ADDR`, default `:9102`, never on the public port) with `token_service_authz_shadow_checks_total{result="agree|differ|error"}`, so the shadow comparison of the migration is a number in the metrics store.
+
 ## [0.1.13] - 2026-11-27
 
 ### Added

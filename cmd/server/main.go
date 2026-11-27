@@ -18,6 +18,7 @@
 //	AUTHZ_MODE         — keto (default) | shadow (Keto decides, OpenFGA compared and differences logged) | openfga (OpenFGA decides)
 //	OPENFGA_URL        — OpenFGA store base URL, e.g. http://openfga.auth.svc.cluster.local:8080/stores/<id> (shadow and openfga modes)
 //	OPENFGA_KEY        — OpenFGA pre-shared key, sent as a Bearer token (shadow and openfga modes; a secret, never logged)
+//	METRICS_ADDR       — listen address of the metrics endpoint (default :9102; never routed by the Ingress)
 //	LOG_LEVEL          — info | debug | warn | error (default: info)
 package main
 
@@ -90,6 +91,16 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// The metrics endpoint is a separate listener on its own port: the public Ingress routes every path of the token host to port 8080, so /metrics must not live there.
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", authz.MetricsHandler())
+	metricsSrv := &http.Server{Addr: envOr("METRICS_ADDR", ":9102"), Handler: metricsMux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("metrics server error", "err", err)
+		}
+	}()
+
 	go func() {
 		slog.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -104,6 +115,8 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// The metrics listener stops with the main one; its error is not worth a log line.
+	_ = metricsSrv.Shutdown(ctx)
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
@@ -397,4 +410,12 @@ func logRequest(next http.Handler) http.Handler {
 			"elapsed_ms", time.Since(start).Milliseconds(),
 		)
 	})
+}
+
+// envOr returns the environment variable key, or fallback when it is unset or empty.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

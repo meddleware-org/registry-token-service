@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/meddleware-org/identity-contract/authzen"
@@ -56,6 +57,28 @@ func (p *PDP) CheckPermission(ctx context.Context, namespace, object, relation, 
 		Subject:  authzen.Entity{Type: "user", ID: subjectID},
 		Resource: authzen.Entity{Type: "registry", ID: object},
 		Action:   authzen.Action{Name: action},
+	})
+}
+
+// The shadow comparison counters, exposed by MetricsHandler so the migration's "zero differences for a week" is a number in the metrics store and not a search of rotated logs.
+var (
+	// shadowAgree counts comparisons where both backends gave the same answer.
+	shadowAgree atomic.Uint64
+	// shadowDiffer counts comparisons where they disagreed (the only number that must stay zero).
+	shadowDiffer atomic.Uint64
+	// shadowError counts comparisons where the secondary gave no answer.
+	shadowError atomic.Uint64
+)
+
+// MetricsHandler serves the shadow counters in the Prometheus text format. It is served on its own port, never on the public one.
+func MetricsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		_, _ = fmt.Fprintf(w, "# HELP token_service_authz_shadow_checks_total Shadow comparisons of the permission check against the new backend, by result.\n"+
+			"# TYPE token_service_authz_shadow_checks_total counter\n"+
+			"token_service_authz_shadow_checks_total{result=\"agree\"} %d\n"+
+			"token_service_authz_shadow_checks_total{result=\"differ\"} %d\n"+
+			"token_service_authz_shadow_checks_total{result=\"error\"} %d\n", shadowAgree.Load(), shadowDiffer.Load(), shadowError.Load())
 	})
 }
 
@@ -111,9 +134,13 @@ func (s *Shadow) compare(namespace, object, relation, subjectID string, want boo
 		other, err := s.Secondary.CheckPermission(ctx, namespace, object, relation, subjectID)
 		switch {
 		case err != nil:
+			shadowError.Add(1)
 			s.Log.Warn("authz shadow: no answer from the new backend", "namespace", namespace, "object", object, "relation", relation, "subject", subjectID)
 		case other != want:
+			shadowDiffer.Add(1)
 			s.Log.Warn("authz shadow: DIFFERENCE", "namespace", namespace, "object", object, "relation", relation, "subject", subjectID, "keto", want, "openfga", other)
+		default:
+			shadowAgree.Add(1)
 		}
 	}()
 }
