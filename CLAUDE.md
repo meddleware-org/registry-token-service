@@ -103,6 +103,10 @@ Also in the repository: `.golangci.yml` (the default linters plus revive's `expo
 - Keep `cmd/server/main.go` thin — routing and handler wiring only. Business logic
   belongs in `internal/`.
 
+## Documentation rules (workspace documentation standard, D144)
+
+Every file has a header and every identifier a doc comment that starts with its name (the `revive` rules in `.golangci.yml` enforce the exported ones in CI); line comments say why. `node scripts/check-docs.mjs --report registry-token-service` (in the workspace repository) is the gate. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## What not to do
 
 - Do not add an in-memory client credential cache. Hydra already handles this efficiently.
