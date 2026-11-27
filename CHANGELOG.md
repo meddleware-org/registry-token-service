@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-27
+
 ### Fixed
 
 - A rejected `HYDRA_TOKEN_URL` or `KETO_READ_URL` is reported by its variable name only. The start-up error used to repeat the value (and the parse error repeated it again), so a URL carrying a user name,
