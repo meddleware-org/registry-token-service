@@ -50,6 +50,16 @@ type Config struct {
 	// (e.g. "http://keto.auth.svc.cluster.local:4466").
 	KetoReadURL string
 
+	// AuthzMode picks the authorization backend: "keto" (default: Keto decides), "shadow" (Keto decides and OpenFGA is asked only to compare, differences logged) or
+	// "openfga" (OpenFGA decides; the cut-over of ADR-0016 stage 3).
+	AuthzMode string
+
+	// OpenFGAURL is the base URL of the OpenFGA store (e.g. "http://openfga.auth.svc.cluster.local:8080/stores/<id>"); required in "shadow" and "openfga" modes.
+	OpenFGAURL string
+
+	// OpenFGAKey is the pre-shared key sent to OpenFGA as a Bearer token. It is a secret: it is never logged or put in an error.
+	OpenFGAKey string
+
 	// LogLevel is the log verbosity ("info", "debug", "warn", "error").
 	LogLevel string
 }
@@ -72,8 +82,25 @@ func Load() (*Config, error) {
 	tokenIssuer := requireEnv("TOKEN_ISSUER")
 	tokenService := requireEnv("TOKEN_SERVICE")
 	hydraTokenURL := requireEnv("HYDRA_TOKEN_URL")
-	ketoReadURL := requireEnv("KETO_READ_URL")
 	logLevel := envOr("LOG_LEVEL", "info")
+
+	// The authorization backend. Keto stays the default so a deployment that sets nothing new behaves exactly as before.
+	authzMode := envOr("AUTHZ_MODE", "keto")
+	if authzMode != "keto" && authzMode != "shadow" && authzMode != "openfga" {
+		return nil, fmt.Errorf("AUTHZ_MODE must be keto, shadow or openfga")
+	}
+	// Keto's URL is required unless OpenFGA alone decides.
+	ketoReadURL := ""
+	if authzMode == "openfga" {
+		ketoReadURL = os.Getenv("KETO_READ_URL")
+	} else {
+		ketoReadURL = requireEnv("KETO_READ_URL")
+	}
+	openFGAURL, openFGAKey := "", ""
+	if authzMode != "keto" {
+		openFGAURL = requireEnv("OPENFGA_URL")
+		openFGAKey = requireEnv("OPENFGA_KEY")
+	}
 
 	ttlSec, err := strconv.Atoi(envOr("TOKEN_TTL", "300"))
 	if err != nil {
@@ -96,8 +123,15 @@ func Load() (*Config, error) {
 	if err := validateHTTPURL("HYDRA_TOKEN_URL", hydraTokenURL); err != nil {
 		return nil, err
 	}
-	if err := validateHTTPURL("KETO_READ_URL", ketoReadURL); err != nil {
-		return nil, err
+	if ketoReadURL != "" {
+		if err := validateHTTPURL("KETO_READ_URL", ketoReadURL); err != nil {
+			return nil, err
+		}
+	}
+	if openFGAURL != "" {
+		if err := validateHTTPURL("OPENFGA_URL", openFGAURL); err != nil {
+			return nil, err
+		}
 	}
 
 	keyPath := envOr("RSA_PRIVATE_KEY_PATH", "/etc/token-service/signing.key")
@@ -120,6 +154,9 @@ func Load() (*Config, error) {
 		PrivateKey:    key,
 		HydraTokenURL: hydraTokenURL,
 		KetoReadURL:   ketoReadURL,
+		AuthzMode:     authzMode,
+		OpenFGAURL:    openFGAURL,
+		OpenFGAKey:    openFGAKey,
 		LogLevel:      logLevel,
 	}, nil
 }

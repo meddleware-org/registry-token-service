@@ -4,11 +4,15 @@ package main
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"github.com/meddleware-org/registry-token-service/internal/authz"
+	"github.com/meddleware-org/registry-token-service/internal/config"
 	"github.com/meddleware-org/registry-token-service/internal/hydra"
 	"github.com/meddleware-org/registry-token-service/internal/keto"
 )
@@ -193,5 +197,26 @@ func TestFakeKetoKeyShape(t *testing.T) {
 	q.Set("subject_id", "s")
 	if got := q.Get("object") + "#" + q.Get("relation") + "@" + q.Get("subject_id"); got != "o#r@s" {
 		t.Fatalf("key shape = %q", got)
+	}
+}
+
+// TestBuildChecker checks each AUTHZ_MODE yields the right backend: Keto alone by default, Keto with OpenFGA compared in shadow, OpenFGA alone.
+func TestBuildChecker(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := &config.Config{KetoReadURL: "http://keto:4466", OpenFGAURL: "http://openfga:8080/stores/x", OpenFGAKey: "k"}
+	for mode, check := range map[string]func(authz.Checker) bool{
+		"keto": func(c authz.Checker) bool { _, ok := c.(*keto.Client); return ok },
+		"shadow": func(c authz.Checker) bool {
+			s, ok := c.(*authz.Shadow)
+			_, k := s.Primary.(*keto.Client)
+			return ok && k
+		},
+		"openfga": func(c authz.Checker) bool { _, ok := c.(*authz.PDP); return ok },
+	} {
+		cfg.AuthzMode = mode
+		c, err := buildChecker(cfg, logger)
+		if err != nil || !check(c) {
+			t.Errorf("mode %s: got %T %v", mode, c, err)
+		}
 	}
 }

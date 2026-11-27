@@ -14,7 +14,10 @@
 //	TOKEN_TTL          — token lifetime in seconds (default: 300)
 //	RSA_PRIVATE_KEY_PATH — path to PEM RSA private key file
 //	HYDRA_TOKEN_URL    — Hydra public token endpoint (POST /oauth2/token)
-//	KETO_READ_URL      — Keto read API base URL
+//	KETO_READ_URL      — Keto read API base URL (not needed when AUTHZ_MODE=openfga)
+//	AUTHZ_MODE         — keto (default) | shadow (Keto decides, OpenFGA compared and differences logged) | openfga (OpenFGA decides)
+//	OPENFGA_URL        — OpenFGA store base URL, e.g. http://openfga.auth.svc.cluster.local:8080/stores/<id> (shadow and openfga modes)
+//	OPENFGA_KEY        — OpenFGA pre-shared key, sent as a Bearer token (shadow and openfga modes; a secret, never logged)
 //	LOG_LEVEL          — info | debug | warn | error (default: info)
 package main
 
@@ -32,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/meddleware-org/registry-token-service/internal/authz"
 	"github.com/meddleware-org/registry-token-service/internal/config"
 	"github.com/meddleware-org/registry-token-service/internal/hydra"
 	"github.com/meddleware-org/registry-token-service/internal/keto"
@@ -67,12 +71,16 @@ func main() {
 	slog.SetDefault(logger)
 
 	hydraClient := hydra.NewClient(cfg.HydraTokenURL)
-	ketoClient := keto.NewClient(cfg.KetoReadURL)
+	checker, err := buildChecker(cfg, logger)
+	if err != nil {
+		slog.Error("authorization backend", "err", err)
+		os.Exit(1)
+	}
 	issuer := token.NewIssuer(cfg.TokenIssuer, cfg.TokenService, cfg.TokenTTL, cfg.PrivateKey)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth)
-	mux.Handle("GET /token", handleToken(hydraClient, ketoClient, issuer, cfg.TokenService))
+	mux.Handle("GET /token", handleToken(hydraClient, checker, issuer, cfg.TokenService))
 
 	srv := &http.Server{
 		Addr:         net.JoinHostPort("", cfg.Port),
@@ -144,7 +152,7 @@ type tokenResponse struct {
 //	account — Docker username (informational; clientID from Basic auth is used)
 func handleToken(
 	hydraClient *hydra.Client,
-	ketoClient *keto.Client,
+	ketoClient authz.Checker,
 	issuer *token.Issuer,
 	service string,
 ) http.Handler {
@@ -300,7 +308,7 @@ func describeAccess(access []token.AccessClaim) []string {
 // A repo name without a "/" (no org segment) is checked only at the repo level.
 // Either check may return an error (e.g. Keto unreachable), which the caller
 // turns into a 503 — the service never fails open.
-func checkRepoOrOrgPermission(ctx context.Context, ketoClient *keto.Client, repo, relation, clientID string) (bool, error) {
+func checkRepoOrOrgPermission(ctx context.Context, ketoClient authz.Checker, repo, relation, clientID string) (bool, error) {
 	permitted, err := ketoClient.CheckPermission(ctx, "Registry", repo, relation, clientID)
 	if err != nil {
 		return false, err
@@ -314,6 +322,22 @@ func checkRepoOrOrgPermission(ctx context.Context, ketoClient *keto.Client, repo
 		return false, nil
 	}
 	return ketoClient.CheckPermission(ctx, "Registry", org, relation, clientID)
+}
+
+// buildChecker makes the permission checker for the configured mode: Keto alone, Keto with OpenFGA in shadow, or OpenFGA alone.
+func buildChecker(cfg *config.Config, logger *slog.Logger) (authz.Checker, error) {
+	switch cfg.AuthzMode {
+	case "openfga":
+		return authz.NewPDP(cfg.OpenFGAURL, cfg.OpenFGAKey)
+	case "shadow":
+		pdp, err := authz.NewPDP(cfg.OpenFGAURL, cfg.OpenFGAKey)
+		if err != nil {
+			return nil, err
+		}
+		return &authz.Shadow{Primary: keto.NewClient(cfg.KetoReadURL), Secondary: pdp, Log: logger}, nil
+	default:
+		return keto.NewClient(cfg.KetoReadURL), nil
+	}
 }
 
 // orgOf returns the organization segment of a repository name — the portion

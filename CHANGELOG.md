@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-11-27
+
+### Added
+
+- `AUTHZ_MODE` (`keto` by default, `shadow`, `openfga`), `OPENFGA_URL` and `OPENFGA_KEY`: the permission check can be asked of OpenFGA through the identity contract's AuthZEN client (ADR-0016 stage 3). In `shadow` mode Keto still decides and OpenFGA is only compared in the background; a difference or a failure is logged and never changes a response. `KETO_READ_URL` is not needed in `openfga` mode. With nothing set the service behaves exactly as before.
+
 ## [0.1.12] - 2026-11-27
 
 ### Fixed

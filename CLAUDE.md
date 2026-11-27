@@ -81,7 +81,10 @@ scripts/                    third-party-licenses.sh (image notices), check-image
 | `TOKEN_TTL` | no | `300` | Token lifetime in seconds (bounded; out-of-range values are refused at startup) |
 | `RSA_PRIVATE_KEY_PATH` | no | `/etc/token-service/signing.key` | PEM RSA private key |
 | `HYDRA_TOKEN_URL` | yes | none | Hydra public token endpoint (`POST /oauth2/token`; `http` or `https` with a host; a rejected value is never echoed) |
-| `KETO_READ_URL` | yes | none | Keto read API base URL (`http` or `https` with a host; a rejected value is never echoed) |
+| `KETO_READ_URL` | yes (not in `openfga` mode) | none | Keto read API base URL (`http` or `https` with a host; a rejected value is never echoed) |
+| `AUTHZ_MODE` | no | `keto` | `keto` (Keto decides), `shadow` (Keto decides, OpenFGA is asked in the background only to compare: a difference or a failure is logged, never acted on) or `openfga` (OpenFGA decides; the cut-over of the identity migration, ADR-0016 stage 3) |
+| `OPENFGA_URL` | in `shadow` and `openfga` | none | OpenFGA store base URL, `http://openfga.auth.svc.cluster.local:8080/stores/<id>` |
+| `OPENFGA_KEY` | in `shadow` and `openfga` | none | OpenFGA pre-shared key, sent as a Bearer token; a secret, never logged or put in an error |
 | `LOG_LEVEL` | no | `info` | `debug\|info\|warn\|error` |
 
 ```bash
@@ -102,6 +105,10 @@ Also in the repository: `.golangci.yml` (the default linters plus revive's `expo
 - Error paths return immediately; do not swallow errors silently.
 - Keep `cmd/server/main.go` thin — routing and handler wiring only. Business logic
   belongs in `internal/`.
+
+## Authorization backends (ADR-0016 stage 3)
+
+`internal/authz` holds the `Checker` interface (Keto's client implements it), `PDP` (OpenFGA through the identity contract's AuthZEN client: Keto's `Registry` namespace and relations `pushers`, `pullers`, `admins`, `listers` become the resource type `registry` and the actions `pusher`, `puller`, `admin`, `lister` of the model in the workspace's `k8s/base/auth/openfga/model.json`) and `Shadow`. `Shadow` returns the primary's answer and asks the secondary afterwards in its own goroutine with its own timeout: the secondary can never change, delay or fail a decision. The org-then-repository fallback stays in `checkRepoOrOrgPermission`.
 
 ## Documentation rules (workspace documentation standard, D144)
 

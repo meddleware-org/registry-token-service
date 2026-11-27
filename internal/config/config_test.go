@@ -144,3 +144,64 @@ func TestURLErrorsNeverEchoTheValue(t *testing.T) {
 		}
 	}
 }
+
+// TestAuthzModes covers the authorization backend settings: the default is Keto, shadow and openfga need the OpenFGA URL and key, openfga does not need Keto's URL, a bad mode or URL is
+// rejected, and the key never appears in an error.
+func TestAuthzModes(t *testing.T) {
+	// base sets the variables every mode needs, from the valid-environment helper of this file.
+	base := func(t *testing.T) {
+		t.Helper()
+		setValidEnv(t, writeKey(t, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(strongKey(t))))
+		t.Setenv("AUTHZ_MODE", "")
+	}
+	// With nothing set the service behaves as before: Keto decides and no OpenFGA setting is read.
+	t.Run("default is keto", func(t *testing.T) {
+		base(t)
+		cfg, err := Load()
+		if err != nil || cfg.AuthzMode != "keto" || cfg.OpenFGAURL != "" {
+			t.Fatalf("got %+v %v", cfg, err)
+		}
+	})
+	t.Run("shadow needs the OpenFGA settings", func(t *testing.T) {
+		base(t)
+		t.Setenv("AUTHZ_MODE", "shadow")
+		// Without the URL and key the mode is refused at start-up, not discovered at the first request.
+		if _, err := Load(); err == nil {
+			t.Fatal("shadow without OPENFGA_URL accepted")
+		}
+		// With both set the mode loads and the key is kept for the client.
+		t.Setenv("OPENFGA_URL", "http://openfga:8080/stores/x")
+		t.Setenv("OPENFGA_KEY", "super-secret-key")
+		cfg, err := Load()
+		if err != nil || cfg.AuthzMode != "shadow" || cfg.OpenFGAKey != "super-secret-key" {
+			t.Fatalf("got %+v %v", cfg, err)
+		}
+	})
+	t.Run("openfga needs no keto url", func(t *testing.T) {
+		base(t)
+		// In openfga mode Keto is not consulted, so its URL may be absent.
+		t.Setenv("AUTHZ_MODE", "openfga")
+		t.Setenv("KETO_READ_URL", "")
+		t.Setenv("OPENFGA_URL", "http://openfga:8080/stores/x")
+		t.Setenv("OPENFGA_KEY", "super-secret-key")
+		if _, err := Load(); err != nil {
+			t.Fatalf("openfga mode without keto: %v", err)
+		}
+	})
+	t.Run("a bad mode or url is rejected and the key is not echoed", func(t *testing.T) {
+		base(t)
+		// An unknown mode must never fall back silently to some default.
+		t.Setenv("AUTHZ_MODE", "both")
+		if _, err := Load(); err == nil {
+			t.Fatal("bad mode accepted")
+		}
+		// A host-less URL is refused, and the error names the variable but never repeats the secret.
+		t.Setenv("AUTHZ_MODE", "shadow")
+		t.Setenv("OPENFGA_URL", "http://")
+		t.Setenv("OPENFGA_KEY", "super-secret-key")
+		_, err := Load()
+		if err == nil || strings.Contains(err.Error(), "super-secret-key") {
+			t.Fatalf("got %v", err)
+		}
+	})
+}
